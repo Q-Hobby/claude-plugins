@@ -22,7 +22,7 @@ This thread can live for days across monitor wake-ups, so its context is for
 state and decisions only. Under all circumstances you never read source,
 search the codebase, edit files, read logs or diffs, or run seeds, builds,
 tests, git, or `gh` yourself. You read and write the state file, call the
-ClosedLoop MCP for the ticket and loop, start and stop `gh-monitor-pr`,
+ClosedLoop MCP for the ticket, start and stop `gh-monitor-pr`,
 commit, and dispatch workers with short briefs. Committing is yours alone,
 because a commit runs the repository's commit hooks: use
 `node ../vibe/scripts/commit-worktree.mjs --worktree "<fix worktree>" --subject "<subject>" [--body "<text>"]`,
@@ -45,7 +45,7 @@ subagent with the file's body as its instructions, in Claude Code use
 ## State
 
 Keep state in `~/.codex/vibe-seed-refresh/state.json`:
-`{ "phase", "ticket", "loopId", "branch", "worktree", "pr", "lastCheck", "drift", "walk" }`,
+`{ "phase", "ticket", "branch", "worktree", "pr", "lastCheck", "drift", "walk" }`,
 where `walk` is the fix worker's latest `Walk:` evidence line.
 Read it first on every run and every wake-up. Phases, in order:
 `checking`, `fixing`, `pr-open`, `queued`, `merged`, `done`. A missing file
@@ -72,7 +72,7 @@ On `DRIFT`:
    is open.
 2. Otherwise `create-document` (`type: ISSUE`, `status: IN_PROGRESS`, assigned
    to you, title "Vibe seed refresh: <short drift summary>", body listing every
-   drift item), then `create-loop` on it.
+   drift item).
 3. Save state with phase `fixing` and the drift list.
 
 ## 3. Fix
@@ -84,13 +84,12 @@ pass, including the full web and Desktop screen walk, which it runs itself:
 on a Mac through `pnpm vibe walk-linux` (a Linux container on the local
 Docker), on Linux through the native `pnpm vibe up --ci`, `pnpm vibe walk`,
 `pnpm vibe down` sequence. Save its worktree, branch and `Walk:` evidence line
-(route, web and Desktop screen counts, failures, result file) in state, and
-post a loop event with its summary and that walk line. A `DONE` without a
-`Walk:` line is not done: send it back to the fix worker. On `BLOCKED`, post
-the reason as a loop event, tell Daniel, and stop; a refused walk (Docker VM
-too small, the `cl-ai-stage` AWS sign-in expired, another walk-linux run
-active) is reported with the tool's exact message, never as a pass and never
-worked around.
+(route, web and Desktop screen counts, failures, result file) in state. A
+`DONE` without a `Walk:` line is not done: send it back to the fix worker. On
+`BLOCKED`, tell Daniel the reason and stop; a refused walk (Docker VM too
+small, the `cl-ai-stage` AWS sign-in expired, another walk-linux run active)
+is reported with the tool's exact message, never as a pass and never worked
+around.
 
 ## 4. Pull request
 
@@ -101,7 +100,7 @@ Then dispatch `vibe-seed-pr-worker` in open mode with the worktree, ticket,
 the fix worker's summary, and the `Walk:` evidence line, which goes into the
 PR's Test plan. It pushes and returns the PR URL. Link it (ClosedLoop `create_branch_artifact` with the ticket's project UUID as
 `projectId`, the branch as `branchName`, and the ticket's UUID as
-`sourceArtifactId`; then a loop event),
+`sourceArtifactId`),
 start the monitor per the `gh-monitor-pr` skill with the PR URL and
 `--stall-after 1800`, save phase `pr-open`, and end the turn.
 
@@ -116,9 +115,9 @@ state, then act on it:
   `<ISS-slug>: <what the fix changed>`, then dispatch `vibe-seed-pr-worker`
   in push mode with those threads and replies; it pushes, replies on each
   thread with the fixing commit, and resolves them. When the fix worker
-  re-ran the walk, save its new `Walk:` line in state, post it as a loop
-  event, and pass it to push mode, which updates the Test plan's walk line. A failure unrelated to
-  the diff gets one re-run; a second failure gets a loop event and a note to
+  re-ran the walk, save its new `Walk:` line in state and pass it to push
+  mode, which updates the Test plan's walk line. A failure unrelated to
+  the diff gets one re-run; a second failure gets a note to
   Daniel instead of more re-runs.
 - Merge conflict: `vibe-seed-pr-worker` in sync mode (stage a merge of main
   without committing, re-run the fix worker's checks through it). Commit with
@@ -135,9 +134,7 @@ End every wake-up turn after acting; the monitor wakes the thread again.
 
 ## 6. Done
 
-1. ClosedLoop: `complete-loop` with the PR URL, branch and the `Walk:` line
-   from state, then
-   `update-document` to `DONE`.
+1. ClosedLoop: `update-document` to `DONE`.
 2. Stop the PR monitor per `gh-monitor-pr`.
 3. Dispatch `vibe-seed-pr-worker` in cleanup mode (remove the fix worktree
    without forcing, delete the local branch).

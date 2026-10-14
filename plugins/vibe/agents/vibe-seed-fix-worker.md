@@ -98,7 +98,7 @@ reply saying what changed.
 ## Return (under 150 words)
 
 `DONE` with the worktree path, the branch, a one-paragraph summary for the PR
-body and loop event (models fixed and how, checks run), the walk evidence on
+body (models fixed and how, checks run), the walk evidence on
 one line (`Walk: <walk-linux|native>, web <visited.web> screens, Desktop
 <visited.desktop> screens, <n> failures, result <result file path>`, plus
 `runDir` for walk-linux), and in follow-up mode each addressed review thread's

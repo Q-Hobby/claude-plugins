@@ -90,7 +90,7 @@ def test_a_refused_run_is_blocked_with_the_exact_message_and_never_worked_around
     assert "reported with the tool's exact message, never as a pass and never worked around" in skill
 
 
-def test_the_walk_evidence_reaches_the_pr_test_plan_and_the_ticket_loop() -> None:
+def test_the_walk_evidence_reaches_the_pr_test_plan_and_the_state() -> None:
     returned = section(FIX_WORKER.read_text(), "## Return (under 150 words)")
     assert ("`Walk: <walk-linux|native>, web <visited.web> screens, Desktop <visited.desktop> screens, "
             "<n> failures, result <result file path>`") in returned
@@ -100,12 +100,11 @@ def test_the_walk_evidence_reaches_the_pr_test_plan_and_the_ticket_loop() -> Non
     assert '"drift", "walk" }' in skill
     fix = section(skill, "## 3. Fix")
     for required in ("on a Mac through `pnpm vibe walk-linux`",
-                     "post a loop event with its summary and that walk line",
+                     "Save its worktree, branch and `Walk:` evidence line",
                      "A `DONE` without a `Walk:` line is not done"):
         assert required in fix, required
     assert "the `Walk:` evidence line, which goes into the PR's Test plan" in section(skill, "## 4. Pull request")
-    assert "post it as a loop event, and pass it to push mode" in section(skill, "## 5. On each wake-up")
-    assert "`complete-loop` with the PR URL, branch and the `Walk:` line" in section(skill, "## 6. Done")
+    assert "save its new `Walk:` line in state and pass it to push" in section(skill, "## 5. On each wake-up")
 
     modes = section(PR_WORKER.read_text(), "## Modes")
     for required in ("with the walk evidence as its own line",
