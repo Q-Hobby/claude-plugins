@@ -4,6 +4,12 @@ All notable changes to the claude-plugins project will be documented in this fil
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Entries are listed newest-first; each plugin section is treated as released when merged to `main`.
 
+### vibe v1.0.38
+
+#### Changed
+- `$vibe` no longer searches for previous sessions when it starts (operator ruling, 2026-10-15). It first settles whether the person is resuming or starting new, asking one plain question only when their own words do not already say. A new session skips the search entirely; the session list runs only after the person chose to resume, and what it finds is offered then. Handoff's use of the list is unchanged.
+- The plugin README's v1.0 freeze sentence now matches `guardrails.md`: handoff blocks any other edit of a v1.0 story file except a compile-only repair, and story files under the `Start Here/` root are exempt from the freeze.
+
 ### vibe v1.0.37
 
 #### Fixed
