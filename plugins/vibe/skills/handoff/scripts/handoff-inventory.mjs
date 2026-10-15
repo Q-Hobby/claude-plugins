@@ -99,7 +99,7 @@ const BACKEND_SEGMENTS = ["/prisma/", "/migrations/"];
 const STORY_PATTERN = /\.stories\.tsx?$/;
 const COMPONENT_PATTERN = /\/components\/.+\.tsx$/;
 // v1.0 is the frozen baseline; new work goes under `<Level> v2.0/`
-// (apps/storybook/TAXONOMY.md; Daniel Ochoa's ruling, 2026-10-14).
+// (apps/storybook/TAXONOMY.md; operator ruling, 2026-10-14).
 // A v1.0 story file is never edited except for a compile-only repair
 // (design ruling, 2026-10-15).
 const V1_STORY_TITLE = /\btitle:\s*["'`](?:Foundations|Primitives|Composites|Surfaces)\//;
@@ -114,12 +114,12 @@ const EXPORT_LIST = /\bexport\s*\{([^}]*)\}/g;
 const EXPORT_ALIAS = /\s+as\s+/;
 const STORY_PATHSPECS = ["*.stories.ts", "*.stories.tsx"];
 // Tests are written only when the person explicitly asks for a pull request
-// (Daniel Ochoa's ruling, 2026-10-13); earlier phases may only repair existing
-// tests and fixtures the session's change broke (Daniel Ochoa's ruling,
+// (operator ruling, 2026-10-13); earlier phases may only repair existing
+// tests and fixtures the session's change broke (operator ruling,
 // 2026-10-13, after the PRD-720 live test) or delete a recorded retired-only
-// test (Daniel Ochoa's ruling, 2026-10-13).
+// test (operator ruling, 2026-10-13).
 // Handoff may edit, never create, existing product docs pages as marked agent
-// drafts (Daniel Ochoa's scoped exception, 2026-10-13); generated pages and
+// drafts (scoped operator exception, 2026-10-13); generated pages and
 // the internal docs/ folder stay out.
 const PRODUCT_DOCS_PREFIX = "apps/web/content/docs/";
 const PRODUCT_DOCS_EXTENSION = ".mdx";
