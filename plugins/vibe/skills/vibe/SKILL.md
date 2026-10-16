@@ -266,8 +266,11 @@ question is never repeated and does not go through `session-questions.mjs`.
   on with the version you have." and continue.
 - `outdated`: before anything else, ask exactly: "A newer version of vibe is
   available (you have <installed>, the latest is <latest>). Do you want to
-  keep going with this one, or update now?" On "keep going", continue with
-  this version. On "update", run each command in its `update` list in order
+  keep going with this one, or update now?" That question is the whole first
+  reply: the endings line of a new session (section 5, "Notices that never
+  wait") waits for its answer. On "keep going", continue with this version.
+  The next reply is then the new session's first reply, endings line
+  included. On "update", run each command in its `update` list in order
   yourself; this is the one plugin change you make, and only on the person's
   choice (`references/guardrails.md`, "Plugins and tooling"). When they all
   succeed, tell the person, in Codex: "vibe is updated. Quit the ChatGPT app
@@ -378,7 +381,11 @@ Then follow "Resuming" below.
 ### Starting new
 
 1. Your first reply to the new session carries the endings line (section 5,
-   "Notices that never wait"). Use the work the person already described.
+   "Notices that never wait"), after the plugin version check (section 1,
+   "Plugin version"): when the version is current or unknown it goes in the
+   very first reply; when it is outdated, the version question comes first
+   on its own and the endings line goes in the first reply after the person
+   answers it. Use the work the person already described.
    Only when they have not supplied it, ask what they want to work on: a ClosedLoop ticket (ISS-, PRD-, or a pasted
    URL) or a plain description. A vibe session builds the real thing, backend
    included when a change needs it, so if they clearly want a mockup or an
@@ -759,8 +766,11 @@ what it already built, like any other request about it.
   2026-10-15), include this one line as it is: "When you're done, I can
   either open a pull request for you, or pass it to design or engineering to
   finish." It is a notice, not a question: it rides along with whatever that
-  first reply says or asks, and nothing waits on it. Never add it when
-  resuming a session, and never repeat it later in the session.
+  first reply says or asks, and nothing waits on it. The one thing that
+  comes before it is an outdated plugin's version question (section 1,
+  "Plugin version"), which is asked alone; the endings line then rides in the
+  first reply after that answer. Never add it when resuming a session, and
+  never repeat it later in the session.
 
 Pure mockups still use canonical `$prototype` guidance through this writer;
 the person only types `$vibe` and `$handoff`. Initial session creation chooses
