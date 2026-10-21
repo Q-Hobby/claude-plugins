@@ -55,6 +55,25 @@ const STORY_ID_WORD = /[A-Z]{2,}(?=[A-Z][a-z]|\b|\d)|[A-Z]?[a-z]+|[A-Z]|\d+/g;
 const HARNESS_NAME = /harness|adapter/i;
 const EXPECT_CALL = /\bexpect\(/;
 const WINDOW = 25;
+const COPY_FILE = /\.[jt]sx$/;
+const COPY_LITERALS = [
+  /\btoast(?:\.\w+)?\(\s*(["'`])((?:(?!\1)[^\\]|\\.)*)\1/g,
+  /(?:\baria-label|\baria-description|\blabel|\btitle|\bplaceholder|\bdescription|\btooltip)\s*[=:]\s*\{?\s*(["'`])((?:(?!\1)[^\\]|\\.)*)\1/g,
+  /()(?<=[\w"'}/])>([^<>{}=&|();]*[A-Za-z]{2,}[^<>{}=&|();]*)</g,
+];
+const WORDING = /[A-Z]|\s/;
+const TEMPLATE_PART = /\$\{[^}]*\}/;
+const TEMPLATE_PARTS = /\$\{[^}]*\}/g;
+const SCRIPT_FILE = /\.(?:[cm]?[jt]sx?|sh|bash|zsh|py)$/;
+const ENV_DUMP = [
+  /JSON\.stringify\(\s*process\.env\s*[,)]/,
+  /Object\.(?:entries|values)\(\s*process\.env\s*\)/,
+  /console\.\w+\([^)]*\bprocess\.env\s*\)/,
+  /^\s*(?:printenv|env|export\s+-p|set)\s*(?:$|[>|])/,
+  /(?:print|json\.dumps)\(\s*(?:dict\()?os\.environ\b(?!\s*[.[])/,
+];
+const JSX_MOUNT = /<([A-Z][A-Za-z0-9]*)\b/g;
+const RESTORE_LIMIT = 40;
 
 /** Parses `git diff --unified=0` output into per-file added and removed lines. */
 export function parseUnifiedDiff(text) {
@@ -113,6 +132,11 @@ export function evaluateDiff(files, changeLog, repo) {
   for (const file of shared.filter((entry) => (importers.get(entry.path) ?? 0) >= 2)) {
     add("shared-path", file.path, file.added[0]?.line ?? 1, "changes a shared read or write path without recorded evidence that existing callers are unchanged", "record `Shared path: <path>: unchanged for existing callers; evidence: <test or missing test entry with legacy fixtures>` or `...: changed; ruling: <human source>`");
   }
+  for (const file of live.filter((entry) => SCRIPT_FILE.test(entry.path) && !isTestFile(entry.path))) {
+    for (const entry of file.added.filter((item) => ENV_DUMP.some((pattern) => pattern.test(item.text)))) {
+      add("env-dump", file.path, entry.line, "prints or serializes the whole environment, which holds credentials", "read only the named non-secret keys the diagnostic needs; never print, log or write env or config wholesale");
+    }
+  }
   for (const file of live.filter((entry) => SOURCE_FILE.test(entry.path) && !isTestFile(entry.path))) {
     const head = repo.head(file.path) ?? "";
     checkActivityCapture(file, head, logged, add);
@@ -124,6 +148,8 @@ export function evaluateDiff(files, changeLog, repo) {
   checkStories(live, files, repo, logged, add);
   checkFrozenRenders(files, repo, logged, add);
   checkLostStoryIds(files, repo, add);
+  checkCopyProvenance(live, files, repo, logged, add);
+  checkRestoredRemovals(live, files, repo, changeLog, add);
   requiredTests.push(...routeSpecs(live, repo), ...gridParityTests(files, repo), ...sidebarOrderTests(files, repo));
   return { ok: blocking.length === 0, blocking, requiredTests, requiredChecks };
 }
@@ -440,6 +466,69 @@ export function gridParityTests(files, repo) {
     .map((file) => ({ path: file, reason: "a GridTableV2 type, adapter or mount changed; this parity test is not mapped by code_tests_for" }));
 }
 
+/**
+ * A new toast, label, title, placeholder, description or aria string, or JSX text, that the base tree never had
+ * needs a cited human source; a prose provenance rule did not stop agent-written toasts.
+ */
+function checkCopyProvenance(files, allFiles, repo, logged, add) {
+  const removed = allFiles.flatMap((file) => file.removed.map((entry) => entry.text)).join("\n");
+  for (const file of files.filter((entry) => COPY_FILE.test(entry.path) && !isTestFile(entry.path) && !STORY_FILE.test(entry.path))) {
+    for (const entry of file.added) {
+      for (const text of copyLiterals(entry.text)) {
+        if (!removed.includes(text) && !logged(`Copy: "${text}":`) && !repo.baseContains(text)) {
+          add("copy-provenance", file.path, entry.line, `new user-visible string "${text}" with no cited human source`, `reuse the shared constant or label map that renders it, or record \`Copy: "${text}": <ticket, PRD or person's words that give it>\`; the session's own ticket, plan or change log is not a source`);
+        }
+      }
+    }
+  }
+}
+
+/**
+ * A component mounted again, or a file added back, that a base commit removed needs a human's restore
+ * authorization naming the removal it overrides.
+ */
+function checkRestoredRemovals(files, allFiles, repo, changeLog, add) {
+  const authorized = (name) => new RegExp(String.raw`^\s*(?:[-*]\s+)?Restore authorization:\s*${escapeRegExp(name)}:\s*(?:operator ruling|[A-Z][\w'.-]+(?:\s+[A-Z][\w'.-]+)+),\s*\d{4}-\d{2}-\d{2},\s*[^;\n]+;\s*overrides\s+(?:ISS|PRD|PLN|FEA)-\d+`, "m").test(changeLog);
+  const removed = new Set(allFiles.flatMap((file) => file.removed.flatMap((entry) => [...entry.text.matchAll(JSX_MOUNT)].map((match) => match[1]))));
+  let checked = 0;
+  for (const file of files.filter((entry) => COPY_FILE.test(entry.path) && !isTestFile(entry.path) && !STORY_FILE.test(entry.path))) {
+    if (file.status === "A" && !authorized(file.path) && checked++ < RESTORE_LIMIT) {
+      const removal = repo.deletionOf(file.path);
+      if (removal) {
+        add("restored-removal", file.path, 1, `adds back a file deleted by ${removal}`, `remove it, or record \`Restore authorization: ${file.path}: <human name or operator ruling>, <YYYY-MM-DD>, <where>; overrides <removal ticket>\``);
+      }
+    }
+    const before = repo.base(file.path) ?? "";
+    const mounted = new Set(file.added.flatMap((entry) => [...entry.text.matchAll(JSX_MOUNT)].map((match) => match[1])));
+    for (const name of [...mounted].filter((item) => !before.includes(`<${item}`) && !removed.has(item) && !authorized(item))) {
+      if (checked++ >= RESTORE_LIMIT) {
+        return;
+      }
+      const removal = repo.unmountOf(name);
+      if (removal) {
+        const line = file.added.find((entry) => entry.text.includes(`<${name}`))?.line ?? 1;
+        add("restored-removal", file.path, line, `mounts ${name}, removed by ${removal}`, `find that removal's ticket and its human ruling; remove the mount, or record \`Restore authorization: ${name}: <human name or operator ruling>, <YYYY-MM-DD>, <where>; overrides <removal ticket>\``);
+      }
+    }
+  }
+}
+
+export function copyLiterals(line) {
+  if (COMMENT_LINE.test(line)) {
+    return [];
+  }
+  const found = new Set();
+  for (const pattern of COPY_LITERALS) {
+    for (const match of line.matchAll(pattern)) {
+      const text = match[2].trim();
+      if (/[A-Za-z]{2,}/.test(text.replace(TEMPLATE_PARTS, "")) && WORDING.test(text)) {
+        found.add(text);
+      }
+    }
+  }
+  return [...found];
+}
+
 /** The sidebar order is copied into preview.tsx; only these tests catch the copy drifting. */
 export function sidebarOrderTests(files, repo) {
   const touched = files.some((file) => SIDEBAR_ORDER_FILES.has(file.path) || (STORY_FILE.test(file.path)
@@ -478,6 +567,32 @@ function gitRepo(worktree, base, isFrozenStory, storyReplacements) {
     baseFiles,
     baseBlobs,
     storyReplacements,
+    deletionOf: (file) => {
+      const hit = lines(() => git(worktree, ["log", "--diff-filter=D", "-n", "1", "--format=%h %s", base, "--", file]))[0];
+      return hit ? `commit ${hit}` : null;
+    },
+    unmountOf: (name) => {
+      const mount = new RegExp(`<${name}\\b`);
+      for (const hit of lines(() => git(worktree, ["log", "-G", `<${name}([^A-Za-z0-9]|$)`, "-n", "20", "--format=%H %h %s", base]))) {
+        const [sha, ...summary] = hit.split(" ");
+        const diff = lines(() => git(worktree, ["show", "--format=", "--unified=0", sha]));
+        const count = (sign) => diff.filter((text) => text.startsWith(sign) && !text.startsWith(`${sign}${sign}${sign}`) && mount.test(text)).length;
+        if (count("-") > count("+")) {
+          return `commit ${summary.join(" ")}`;
+        }
+      }
+      return null;
+    },
+    baseContains: (text) => {
+      const parts = text.split(TEMPLATE_PART);
+      const search = parts.length > 1 ? ["-E", "-e", parts.map((part) => part.replace(/[.[\]()*+?{}|^$\\]/g, "\\$&")).join(".*")] : ["-F", "-e", text];
+      try {
+        git(worktree, ["grep", "-q", ...search, base]);
+        return true;
+      } catch {
+        return false;
+      }
+    },
     filesNaming: (text) => lines(() => git(worktree, ["grep", "-l", "-F", text, "--", ...STORY_ID_PATHSPECS])),
     isFrozenStory,
     frozenStories: () => {

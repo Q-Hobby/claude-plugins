@@ -4,6 +4,27 @@ All notable changes to the claude-plugins project will be documented in this fil
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Entries are listed newest-first; each plugin section is treated as released when merged to `main`.
 
+### vibe v1.0.68
+
+Lessons appended to the vibe lessons ledger on the evening of 2026-10-20, in one release. The repeat lesson and the copy provenance repeat become checks, not more prose. Every check here works on any repository; rules specific to one repository belong in that repository (its AGENTS.md, source gates and repo memory), not in vibe.
+
+#### Added
+- `handoff/scripts/narrow-controls.mjs`: compares the interactive controls in Playwright accessibility snapshots of one row at wide and narrow width and fails on any wide control with no narrow home. A change log line `Narrow home: <role> "<name>" -> <role> "<name>"` must name a control the narrow row has; `Narrow ruling: <role> "<name>": <source>` records a human ruling. The adversarial reviewer runs it on each touched list surface (symphony-alpha #8962: narrow rows replaced the editable status pill with a read-only glyph after a one-line rule asked for this comparison).
+- `diff-rules.mjs` `copy-provenance`: a new toast, label, title, placeholder, description, tooltip or aria string, or JSX text, in any `.jsx` or `.tsx` file that the base tree never had and the diff did not move blocks until the change log records `Copy: "<text>": <source>`; guardrails check 9 already opens each cited source (symphony-alpha #8956: an agent-written removal toast).
+- `live-ticket-check.mjs`: Scope and acceptance criteria needs `- Newest ruling:` with a dated ruling or `none found (searched: ...)`. The requirements worker searches the tracker for later rulings on the capability (`fts_search` with refusal words, `search_memory_facts`, ticket and PRD comments) before scope; a newer contradicting ruling makes old ticket text a question for the operator.
+- `diff-rules.mjs` `restored-removal`: a component newly mounted in a `.jsx` or `.tsx` file that did not mount it, or such a file added back, that a base commit removed (`git log -G` on the JSX mount, `--diff-filter=D` on the path) blocks until the change log records `Restore authorization: <name or path>: <human name or operator ruling>, <YYYY-MM-DD>, <where>; overrides <removal ticket>` (symphony-alpha #8957). The live ticket's Scope also needs `- Prior removal:` with the removing ticket or `none found (searched: ...)`, from the requirements worker's search; the change worker runs the same search before adding an element the ticket does not name verbatim.
+- `diff-rules.mjs` `env-dump`: a script line that prints or serializes the whole environment (`JSON.stringify(process.env)`, `Object.entries(process.env)`, a bare `env` or `printenv`, `print(os.environ)`) blocks (symphony-alpha #8960 captured an API key in a diagnostic report this way).
+
+#### Fixed
+- Main sync Biome runs split the changed paths into commands of at most 120 paths, so a change set past the argv bound no longer fails `schema: argv too_big` and falls back to a plain push (symphony-alpha #8960).
+- `writer-state.mjs release-record` frees a stopped helper's grant whose recorded plugin version directory was deleted by an upgrade, against the root recorded at acquisition, instead of failing with `ENOENT`. The writer's own continuation keeps the stranded `migrate` path.
+
+#### Changed
+- `INSTALL.md`: `plugin add` deletes every older vibe version's cache; nothing needs restoring, because helper locks release without the old version and the writer migrates. Install between turns. `migrate` itself never needed the old directory (the recorded definition is only observed, and absent reads as missing); it was blocked by the helper lock, and a test now deletes the recorded version directory, releases the helper and migrates.
+- Data direction (requirements worker, cl-execute readiness gate and plan review): a new mechanism that moves data between surfaces along an existing direction needs a traced human decision too, and an agent-written ticket is not one.
+- The writer's layout fix claim carries a measurement of the named element at the named viewport; guardrails check 9 blocks a session-written assertion that pins the opposite of its brief.
+- `fleet-orchestrator`: the orchestrator alone files a ticket for a QA finding, after searching open tickets from the last day for the same subject; the QA guide never files. Before dispatch and in every QA-prep brief it runs the newest-ruling search and stops for the operator on a hit; a pane teammate sees messages only at its turn boundary, so an urgent redirect asks the operator to press Esc in that pane, and long briefs go in a file.
+
 ### vibe v1.0.67
 
 Lessons appended to the vibe lessons ledger on 2026-10-20 after v1.0.66, in one release.

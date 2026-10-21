@@ -163,8 +163,11 @@ Raising and recording it is neither instruction inflation nor manufactured
 ambiguity: those rules protect settled rulings, and an unexamined mechanism is
 not one.
 
-Build the outcome only along data directions that are already allowed. A new
-direction of data flow between surfaces
+Build the outcome only along data directions that are already allowed.
+Never bring back an element a human removed: before adding
+a user-visible element the ticket does not name verbatim, run the requirements
+worker's Prior removal search; `diff-rules.mjs` blocks a re-mount or re-added
+file without `Restore authorization:`. A new direction of data flow between surfaces
 (`../skills/cl-execute/references/planning-and-gates.md`, Readiness Gate,
 "Data direction") that traces to no human decision is not built; log it as
 `Engineering decision: <question>; built: <what you built along allowed
@@ -539,6 +542,8 @@ words, check and result (`met` or `not met yet`), and, with a reference image
 on a UI change, a Reference check line per touched screen and theme (light
 and dark wherever the surface supports both): the screenshot path, the
 reference path and the differences found and fixed, or that it could not be
-captured locally and why. `BLOCKED` gives
+captured locally and why. A layout fix claim (wraps, truncates, fits)
+carries a measurement of the named element, not its container, at the named
+viewport: rendered width and line count. `BLOCKED` gives
 evidence without a technical question or silent downscope. Every non-trivial
 result ends with the required Graph block.

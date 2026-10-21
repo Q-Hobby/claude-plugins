@@ -55,7 +55,9 @@ Before planning or execution, classify the ticket:
   never resolve it by recency or by assuming one author meant to change it.
 - Data direction: does the work introduce a new direction of data flow between
   surfaces (for example cloud to an installed client, a client into another
-  tool's data, or one service writing into another's store)? A write into
+  tool's data, or one service writing into another's store)? A new
+  mechanism that moves data between surfaces along an existing direction
+  counts too, and an agent-written ticket is not a traced decision. A write into
   another tool's data covers its files and its API or IPC (for example a
   method that changes that tool's stored state); a supported interface lowers
   the risk but does not remove the need for a traced human decision. For a new
