@@ -4,6 +4,19 @@ All notable changes to the claude-plugins project will be documented in this fil
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Entries are listed newest-first; each plugin section is treated as released when merged to `main`.
 
+### code v2.0.1
+
+#### Changed
+- Phase 1.3 (Simple Mode Evaluation) in `prompts/prompt.md` and `prompts/plan-prompt.md` launches `@code:plan-evaluator` directly. The `judges:eval-cache` skill and its row in the Available Skills table are gone, so a re-entered Phase 1.3 always re-runs the evaluator.
+- `test_install_script.py` expects the four plugins `install.sh` now installs; `hooks/tests/test_spawn_event.sh` uses `code:code-reviewer` as its example `subagent_type`.
+- README no longer lists `code-context.json` in the work directory or names judge workflows as the consumer of `count_tokens.py` and `investigation-log.md`.
+
+### judges (removed)
+
+#### Removed
+- The `judges` plugin (all judge agents, `context-manager-for-judges`, the `run-judges`, `eval-cache` and `artifact-type-tailored-context` skills, `judge-input.schema.json`, and its Python tools and tests) is deleted, and its entry is removed from `.claude-plugin/marketplace.json`.
+- `install.sh` no longer installs or verifies `judges@closedloop-ai`, and its repair instructions no longer name it. An existing install is not uninstalled.
+
 ### vibe v1.0.73
 
 The open lessons from the 2026-10-20 and 2026-10-21 ledger entries, with a mechanical check wherever the lesson had a checkable shape.
