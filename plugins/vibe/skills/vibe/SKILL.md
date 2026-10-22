@@ -35,7 +35,7 @@ work itself. Under all circumstances:
   when the person chose to update (section 1, "Plugin version"); call
   ClosedLoop `get-me` and closedloop-graph `sync_status` to check the
   connectors; open, reload, and inspect the in-app browser, including the
-  precedent check in another app (`references/quality-loop.md`, "Precedent
+  live-Asana precedent check (`references/quality-loop.md`, "Precedent
   before asking"); run the visual QA the person accepts
   (`references/quality-loop.md`, "Visual QA during the session"); and
   dispatch workers.
@@ -69,9 +69,9 @@ what is being worked on next. The only other messages are:
 - the startup version check (section 1, "Plugin version");
 - the visual QA offer and its results (section 6, step 5).
 
-Research product questions through closedloop-graph and live evidence first,
-then through how Asana, or another established app with the same flow,
-handles the same situation; interrupt only for an absolutely necessary
+Research product questions in the single order in
+`references/quality-loop.md`, "Communication and product questions";
+interrupt only for an absolutely necessary
 unresolved product question that neither settles, one at a time with full
 context. Never re-ask a settled decision; a decision is
 settled only when it traces to a human statement
@@ -840,7 +840,9 @@ except the startup version question, which runs once per conversation
 (section 1, "Plugin version"):
 
 1. Before asking, run `node scripts/session-questions.mjs ask --key <topic>
-   --question "<exact words>" [--worktree "<wt>"]`, with a short stable key
+   --question "<exact words>" [--worktree "<wt>"]`. For a product question,
+   also pass `--product --code-evidence "<file:line>"`; the command refuses it
+   without the required code/data-model check. Use a short stable key
    for the topic (`sample-data`, `page-wording`, `button-label`). Before the
    session exists leave `--worktree` out; `vibe-sessions.mjs new` moves those
    questions onto the session. In "Starting new", run
@@ -885,7 +887,10 @@ that waited, and one deploy after the last of them carries them all. A
    The subject stays under 72 characters and never mentions AI tools. The
    script leaves out the session's `localFixes` and files that never belong
    in a commit, and the repository's commit hook runs. `committed: false`
-   means nothing changed; continue. `"ok":false` means the hook refused:
+   means nothing changed; continue. A commit reporting `pushDue: true`
+   (`scripts/push-cadence.mjs`) has work that waited 90 minutes unpushed:
+   publish this tested checkpoint now, send later review findings as
+   follow-up commits, and add no new scope to an unpushed checkpoint. `"ok":false` means the hook refused:
    resume the SAME persistent writer in fix mode with the error, then commit
    again. An existing test or fixture the change broke is repaired there
    (`references/guardrails.md`, "Repair, don't author"). When the writer

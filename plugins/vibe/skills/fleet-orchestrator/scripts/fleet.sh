@@ -2,7 +2,7 @@
 # Usage: fleet.sh <orchDir> <local|remote> session <turn|steer|last> <name> [codex-session.mjs options]
 #        fleet.sh <orchDir> <local|remote> slot <lockName> <owner> <dir> <command...>
 # Settings come from <orchDir>/config.env (references/setup.md); without the REMOTE_* keys only `local` works.
-# `remote` copies the scripts it needs, and a session's prompt file, to <REMOTE_STATE_DIR>/.fleet-orchestrator/
+# `remote` copies the scripts it needs, and a session's prompt file (with its <prompt>.evidence/ folder), to <REMOTE_STATE_DIR>/.fleet-orchestrator/
 # on REMOTE_HOST over ssh and runs them there in REMOTE_SHELL.
 set -euo pipefail
 
@@ -69,6 +69,8 @@ session() {
   if [ -n "$prompt" ]; then
     [ -f "$prompt" ] || { echo "fleet: no prompt file $prompt" >&2; exit 2; }
     extra=(-C "$(cd "$(dirname "$prompt")" && pwd)" "$(basename "$prompt")")
+    # finding-brief.mjs puts a finding's evidence in <prompt>.evidence/, which the writer must be able to open.
+    if [ -d "$prompt.evidence" ]; then extra+=("$(basename "$prompt").evidence"); fi
     for i in "${!args[@]}"; do
       case "${args[$i]}" in
         --prompt-file) args[$((i + 1))]=$remote_dir/$(basename "$prompt") ;;
@@ -76,6 +78,9 @@ session() {
       esac
     done
   fi
+  # The program rulings are a shared spec, not resume-log status. Mirror the
+  # current index whenever work is sent to another host.
+  if [ -f "$orch/rulings.md" ]; then extra+=("-C" "$orch" "rulings.md"); fi
   run_remote "$(printf '%q ' node "$remote_dir/fleet-orchestrator/scripts/codex-session.mjs" "$command" "$REMOTE_STATE_DIR" "$name" ${args[@]+"${args[@]}"})"
 }
 

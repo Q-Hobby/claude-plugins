@@ -491,7 +491,10 @@ step 5's checks and step 7's validation:
   screen, and no other spec.
 - Run them through the repo's containerized path (the `local-ci` skill's
   `dagger call e-2-e`) in the verify worker's checks mode, one stack per machine through `../vibe/scripts/e2e-lock.mjs` (the verify worker's
-  "Existing checks"), never natively on the person's Mac.
+  "Existing checks"), never natively on the person's Mac. The lock gives
+  each run its own compose project, so a teardown removes only its own
+  stack; `--foreign-compose <project>` names a stack started outside the
+  lock, which keeps the machine busy while it runs.
 - A missing Docker or Dagger is recorded as that exact limitation, never a
   pass.
 
@@ -507,8 +510,13 @@ has them and otherwise as the design pack's best-practice review
 "What it checks"), logical QA (`/logical-qa`, `$logical-qa`) for a data or metric
 surface, then product-contract QA (`/metal-andrew`, `$metal-andrew`) once that
 evidence is visible. Each skill dispatches its own read-only agents. Confirmed
-findings resume the SAME writer in fix mode, then steps 3 to 6 run again on
-the result. Their reports feed the Design Review evidence in step 8. Owned
+findings resume the SAME writer in fix mode for every touched surface, even when
+they predate the branch, already exist on main or were called the component
+owner's decision; approved copy is reused and unsourced wording is escalated. Then
+steps 3 to 6 run again on the result. Before handoff, the findings file must pass
+`node ../fleet-orchestrator/scripts/finding-brief.mjs <orchDir> --findings
+<findings.json> --require-disposition`; every finding on a touched surface has
+`fixed: <sha>` or a follow-up `ticket: <id>`. Their reports feed the Design Review evidence in step 8. Owned
 prototype sessions keep their canonical single design review instead.
 
 Every new or changed Storybook `play` runs awaited in a real browser, and any
@@ -875,6 +883,7 @@ resumes and every fix goes through this path, never around it:
    writer until all of them are clean. The guardrails reviewer marks each
    `fixed` thread `verified` or `not-verified` with `file:line` evidence;
    the writer's own report is never that verification.
+   The VQA findings file must also pass `node ../fleet-orchestrator/scripts/finding-brief.mjs <orchDir> --findings <findings.json> --require-disposition`; a finding on a touched surface cannot be handed off without its fixing SHA or follow-up ticket.
 5. Step 7: ROOT commits the fixes, the main-sync publication gate runs, and
    `vibe-environment-worker` in redeploy mode pushes the validated commit to
    the SAME branch through the normal pre-push hook. Never a force push,
@@ -907,4 +916,16 @@ the next pass through step 7's main-sync publication gate is the one main
 merge. Rerun only the tests selected for the files the merge touched, and
 tell the person it is ready to enqueue right away, once
 `node scripts/qa-merge-order.mjs --worktree "<wt>" --qa-head <QA'd sha>`
-passes; the merge queue retests it against main.
+passes; the merge queue retests it against main. On that head, a
+fresh-context reviewer given only the ticket's criteria and the diff writes
+the MET/PARTIAL/MISSED audit, and
+`node scripts/criteria-audit.mjs --worktree "<wt>" --ticket <body> --audit <audit> --matrix <matrix>`
+must pass (every criterion MET, and every criterion x surface x input x flag
+cell evidenced, flag-off cells by a diff against the base or a ruling).
+`node scripts/rulings-check.mjs --ticket <body> --record <QA record>` must
+pass too: every ruling made during the work is on the ticket with the
+criteria it amends. From then on the pull request is shepherded:
+`node ../vibe/scripts/shepherd.mjs --pr <n> --repo <owner/repo>` polls it
+every two minutes and stops on a conflict (merge main at once in final-merge
+mode, push, run it again), failed checks (the SAME writer fixes them), a
+merge or a close.

@@ -94,7 +94,10 @@ test("backend writes: uncaptured artifact fields, errors after a transaction wri
 
 test("a new Desktop sync lane needs the shared give-up, the shared backoff, a Susan pass and the roster", (t) => {
   const lane = "apps/desktop/src/main/agent-sync/placement-outbox.ts";
-  const table = { "apps/desktop/prisma/migrations/20261021000000_placement/migration.sql": "CREATE TABLE \"placement_sync_outbox\" (id int);\n" };
+  const table = {
+    "apps/desktop/prisma/migrations/20261021000000_placement/migration.sql": "CREATE TABLE \"placement_sync_outbox\" (id int);\n",
+    "apps/desktop/src/main/agent-sync/use-placement.js": "import { delay } from \"./placement-outbox\";\n",
+  };
   const bare = run(t, { head: { [lane]: "export const delay = (attempt) => 1000 * 2 ** attempt;\n", ...table } });
   assert.equal(bare.found.filter(([rule]) => rule === "desktop-sync-lane").length, 4);
   const done = run(t, {
@@ -282,7 +285,7 @@ test("removing a mount or a user-visible string main ships needs a recorded huma
 test("copy provenance: a new toast, label or JSX string needs a cited source; existing and moved copy pass", (t) => {
   const file = "packages/app/tags/remove-tags.tsx";
   const base = { [file]: "export function A() {\n  return <Button aria-label=\"Close\">Save</Button>;\n}\n" };
-  const head = { [file]: [
+  const head = { "packages/app/tags/use-tags.js": "import { A, B } from \"./remove-tags\";\n", [file]: [
     "export function A({ n }) {",
     "  toast.success(`Removed ${tag} from ${n} items`);",
     "  const ok = a > limit && b < 3;",
@@ -299,7 +302,7 @@ test("copy provenance: a new toast, label or JSX string needs a cited source; ex
   const elsewhere = { ...base, "apps/app/old-toast.tsx": "toast.success(`Removed ${label} from ${count} items`);\n" };
   assert.deepEqual(run(t, { base: elsewhere, head }).blocking.map((finding) => finding.line), [4, 6]);
   assert.deepEqual(run(t, { head: { "packages/app/tags/remove-tags.test.tsx": "toast(\"Brand new words\");\n" } }).found, []);
-  assert.deepEqual(run(t, { head: { "src/ui/banner.jsx": "export const B = () => <p>Brand new words</p>;\n" } }).found, [["copy-provenance", "src/ui/banner.jsx"]]);
+  assert.deepEqual(run(t, { head: { "src/ui/banner.jsx": "export const B = () => <p>Brand new words</p>;\n", "src/ui/use-banner.js": "import { B } from \"./banner\";\n" } }).found, [["copy-provenance", "src/ui/banner.jsx"]]);
 });
 
 test("a lost story ID blocks unless recorded as a replacement, and every reference to it blocks", (t) => {
@@ -408,4 +411,70 @@ test("a spec importing only the helper export that does not reach the changed en
     head: { [route]: "export const POST = 2;\n" },
   });
   assert.deepEqual(result.requiredTests.map((entry) => entry.path), ["e2e/move.spec.ts"]);
+});
+
+test("a repo-declared path gate becomes a required run when the diff touches its paths", (t) => {
+  const gates = JSON.stringify({ gates: [{ name: "catalog-imports", paths: ["apps/prototypes/**"], command: "node apps/prototypes/scripts/check-catalog-imports.mjs" }] });
+  const touched = run(t, { base: { ".vibe/path-gates.json": gates }, head: { "apps/prototypes/src/page.tsx": "export const x = 1;\n" } });
+  assert.ok(touched.requiredTests.some((entry) => entry.path === "node apps/prototypes/scripts/check-catalog-imports.mjs"));
+  const elsewhere = run(t, { base: { ".vibe/path-gates.json": gates }, head: { "apps/app/page.tsx": "export const x = 1;\n" } });
+  assert.ok(!elsewhere.requiredTests.some((entry) => entry.path.includes("check-catalog-imports")));
+});
+
+test("the repo's Storybook rules block the session diff and require its Storybook checks (#8953, #8960)", (t) => {
+  const rules = JSON.stringify({
+    noOpHandler: { pattern: String.raw`\bonUpdate\w*:\s*\(\)\s*=>\s*undefined` },
+    checks: [{ name: "validate-catalog", command: "pnpm --filter storybook validate:catalog" }],
+  });
+  const file = "packages/app/documents/components/table/documents-view.stories.tsx";
+  const meta = "// No controls: fixture.\nconst meta = { title: \"Composites/Documents View\" };\nexport default meta;\n";
+  const result = run(t, {
+    base: { ".vibe/storybook-rules.json": rules, [file]: meta },
+    head: { [file]: `${meta}const editHandlers = { onUpdatePriority: () => undefined };\n` },
+  });
+  assert.deepEqual(result.found, [["story-no-op-handler", file]]);
+  assert.ok(result.requiredTests.some((entry) => entry.path === "pnpm --filter storybook validate:catalog"));
+  const undeclared = run(t, { base: { [file]: meta }, head: { [file]: `${meta}const editHandlers = { onUpdatePriority: () => undefined };\n` } });
+  assert.deepEqual(undeclared.found, []);
+});
+
+test("a new sort comparator needs a recorded tie test that exists", (t) => {
+  const head = { "p/rank.ts": "export const ranked = (rows) => rows.sort((a, b) => b.score - a.score);\n", "p/use-rank.ts": "import { ranked } from \"./rank\";\n" };
+  assert.deepEqual(run(t, { head }).found, [["comparator-tie", "p/rank.ts"]]);
+  assert.deepEqual(run(t, { head, changeLog: "Comparator: p/rank.ts: tie test p/rank.test.ts\n" }).found, [["comparator-tie", "p/rank.ts"]], "the cited test must exist");
+  const tested = { ...head, "p/rank.test.ts": "test('two rows tied on score keep id order', () => {});\n" };
+  assert.deepEqual(run(t, { head: tested, changeLog: "Comparator: p/rank.ts: tie test p/rank.test.ts\n" }).found, []);
+});
+
+test("a new export no other file uses blocks unless recorded; existing and framework exports do not", (t) => {
+  assert.deepEqual(run(t, { head: { "p/outbox.ts": "export function flushOutbox() {}\n" } }).found, [["unused-export", "p/outbox.ts"]]);
+  assert.deepEqual(run(t, { head: { "p/outbox.ts": "export function flushOutbox() {}\n" }, changeLog: "Export: flushOutbox: imported by the sync worker in ISS-1\n" }).found, []);
+  assert.deepEqual(run(t, { base: { "p/old.ts": "export const old = 1;\n" }, head: { "p/old.ts": "export const old = 2;\n" } }).found, []);
+  assert.deepEqual(run(t, { head: { "app/api/x/route.ts": "export async function GET() {}\n" } }).found, []);
+});
+
+test("a shared component's change requires every host's suites, in both flag states when it reads a flag", (t) => {
+  const base = {
+    "packages/ui/grid.tsx": "export const Grid = (props) => props.rows;\n",
+    "apps/a/sessions.tsx": "import { Grid } from \"@repo/ui/grid\";\nexport const Sessions = Grid;\n",
+    "apps/b/documents.tsx": "import { Grid } from \"@repo/ui/grid\";\nexport const Documents = Grid;\n",
+    "apps/a/sessions.test.tsx": "import { Sessions } from \"./sessions\";\n",
+    "apps/b/documents.stories.tsx": "import { Documents } from \"./documents\";\n",
+    "apps/c/one.tsx": "import { Only } from \"@repo/ui/only\";\nexport const One = Only;\n",
+    "packages/ui/only.tsx": "export const Only = 1;\n",
+  };
+  const suites = ["apps/a/sessions.test.tsx", "apps/b/documents.stories.tsx"];
+  const plain = run(t, { base, head: { "packages/ui/grid.tsx": "export const Grid = (props) => props.rows.slice();\n" }, commit: true });
+  assert.deepEqual(plain.requiredTests.filter((entry) => suites.includes(entry.path)).map((entry) => [entry.path, entry.flagStates]), suites.map((suite) => [suite, undefined]));
+  assert.deepEqual(plain.found, []);
+
+  const flagged = run(t, { base, head: { "packages/ui/grid.tsx": "export const Grid = (props) => (useFeatureFlag(props.k) ? props.rows : []);\n" }, commit: true });
+  assert.deepEqual(flagged.requiredTests.filter((entry) => suites.includes(entry.path)).map((entry) => entry.flagStates), [["on", "off"], ["on", "off"]]);
+  assert.deepEqual(flagged.found, [["shared-flag-branch", "packages/ui/grid.tsx"]]);
+  const keyed = run(t, { base, head: { "packages/ui/grid.tsx": "export const Grid = (props) => (useFeatureFlag(props.k) ? props.rows : []);\n" }, commit: true, changeLog: "Shared behavior: packages/ui/grid.tsx: keyed on hideSelectAll; hosts run: both\n" });
+  assert.deepEqual(keyed.found, []);
+  assert.equal(keyed.requiredTests.filter((entry) => suites.includes(entry.path)).length, 2, "keying it does not drop the hosts' runs");
+
+  const single = run(t, { base, head: { "packages/ui/only.tsx": "export const Only = 2;\n" }, commit: true });
+  assert.deepEqual(single.requiredTests, [], "a component one host imports is not shared");
 });

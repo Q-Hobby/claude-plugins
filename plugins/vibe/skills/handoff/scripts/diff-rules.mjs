@@ -10,8 +10,12 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { git } from "../../vibe/scripts/session-record.mjs";
 import { E2E_ROOT_PATHSPECS, isTestFile } from "../../vibe/scripts/test-files.mjs";
+import { pathGateTests } from "./path-gates.mjs";
+import { checkComparators, checkUnusedExports } from "./review-gap-rules.mjs";
+import { sharedComponentTests } from "./shared-consumers.mjs";
 import { routeSpecs } from "./route-specs.mjs";
 import { escapeRegExp, IMPORT_SPECIFIER, resolveImport, SOURCE_FILE } from "./source-imports.mjs";
+import { checkStorybookRules, storybookRuleTests } from "./storybook-rules.mjs";
 import { isUnversionedStory, storyExportNames, storyMetaTitle } from "./storybook-taxonomy.mjs";
 
 const PRIVATE_PLANS = ".closedloop-ai/vibe-plans/";
@@ -151,7 +155,10 @@ export function evaluateDiff(files, changeLog, repo) {
   checkCopyProvenance(live, files, repo, logged, add);
   checkCapabilityRemovals(live, files, repo, logged, add);
   checkRestoredRemovalsDeepening(live, files, repo, changeLog, add);
-  requiredTests.push(...routeSpecs(live, repo), ...gridParityTests(files, repo), ...sidebarOrderTests(files, repo));
+  checkComparators(live, repo, logged, add, changeLog);
+  checkUnusedExports(live, repo, logged, add);
+  checkStorybookRules(files, repo, logged, add);
+  requiredTests.push(...routeSpecs(live, repo), ...gridParityTests(files, repo), ...sidebarOrderTests(files, repo), ...pathGateTests(live, (file) => repo.head(file)), ...storybookRuleTests(files, (file) => repo.head(file)), ...sharedComponentTests(live, repo, logged, add));
   return { ok: blocking.length === 0, blocking, requiredTests, requiredChecks };
 }
 
@@ -598,6 +605,7 @@ function gitRepo(worktree, base, isFrozenStory, storyReplacements) {
     headFiles,
     baseFiles,
     baseBlobs,
+    wordFiles: (word) => lines(() => git(worktree, ["grep", "-l", "-w", "-F", "--untracked", "-e", word])),
     storyReplacements,
     deletionOf: (file) => {
       const hit = lines(() => git(worktree, ["log", "--diff-filter=D", "-n", "1", "--format=%h %s", base, "--", file]))[0];
@@ -636,31 +644,8 @@ function gitRepo(worktree, base, isFrozenStory, storyReplacements) {
     baseStoriesRendering: (component) =>
       lines(() => git(worktree, ["grep", "-l", "-E", `component:[[:space:]]*${component}([^[:alnum:]_]|$)`, base, "--", "*.stories.tsx", "*.stories.ts"]))
         .map((hit) => hit.slice(base.length + 1)),
-    importerCounts: (files) => {
-      const targets = files.map((file) => {
-        const stem = path.basename(file).replace(/\.tsx?$/, "");
-        const directory = path.dirname(file);
-        return { file, directory, elsewhere: `${path.basename(directory)}/${stem}`, sibling: `./${stem}`, stem };
-      });
-      const hits = lines(() => git(worktree, ["grep", "-F", ...targets.flatMap((target) => ["-e", target.elsewhere, "-e", target.sibling]), "--", "*.ts", "*.tsx"]));
-      const counts = new Map();
-      for (const target of targets) {
-        const elsewhere = new RegExp(`from ["'][^"']*/${escapeRegExp(target.elsewhere)}(?:\\.js)?["']`);
-        const sibling = new RegExp(`from ["']\\./${escapeRegExp(target.stem)}(?:\\.js)?["']`);
-        const importing = new Set();
-        for (const hit of hits) {
-          const at = hit.indexOf(":");
-          const hitFile = hit.slice(0, at);
-          const text = hit.slice(at + 1);
-          if (hitFile !== target.file && !isTestFile(hitFile)
-            && (elsewhere.test(text) || (path.dirname(hitFile) === target.directory && sibling.test(text)))) {
-            importing.add(hitFile);
-          }
-        }
-        counts.set(target.file, importing.size);
-      }
-      return counts;
-    },
+    importersOf: (files) => importersOf(worktree, files),
+    importerCounts: (files) => new Map([...importersOf(worktree, files)].map(([file, importing]) => [file, [...importing].filter((hit) => !isTestFile(hit)).length])),
   };
 }
 
@@ -728,4 +713,30 @@ export function runDiffRules({ worktree, base, changeLog, exclude = new Set(), i
   const logFile = changeLog ?? path.join(git(worktree, ["rev-parse", "--absolute-git-dir"]), "vibe-changes.md");
   const log = existsSync(logFile) ? readFileSync(logFile, "utf8") : "";
   return evaluateDiff(files, log, gitRepo(worktree, base, isFrozenStory, storyReplacements));
+}
+
+/** Every tracked file importing each of `files` by its directory and stem, or by `./stem` beside it. */
+function importersOf(worktree, files) {
+  const targets = files.map((file) => {
+    const stem = path.basename(file).replace(/\.[jt]sx?$/, "");
+    const directory = path.dirname(file);
+    return { file, directory, elsewhere: `${path.basename(directory)}/${stem}`, sibling: `./${stem}`, stem };
+  });
+  const hits = targets.length === 0 ? [] : lines(() => git(worktree, ["grep", "-F", ...targets.flatMap((target) => ["-e", target.elsewhere, "-e", target.sibling]), "--", "*.ts", "*.tsx", "*.js", "*.jsx"]));
+  const found = new Map();
+  for (const target of targets) {
+    const elsewhere = new RegExp(`from ["'][^"']*/${escapeRegExp(target.elsewhere)}(?:\\.js)?["']`);
+    const sibling = new RegExp(`from ["']\\./${escapeRegExp(target.stem)}(?:\\.js)?["']`);
+    const importing = new Set();
+    for (const hit of hits) {
+      const at = hit.indexOf(":");
+      const hitFile = hit.slice(0, at);
+      const text = hit.slice(at + 1);
+      if (hitFile !== target.file && (elsewhere.test(text) || (path.dirname(hitFile) === target.directory && sibling.test(text)))) {
+        importing.add(hitFile);
+      }
+    }
+    found.set(target.file, importing);
+  }
+  return found;
 }
