@@ -4,7 +4,7 @@ Fill every `<field>`; delete a line only when it does not apply.
 
 ## Visual request
 
-A Codex session drafts this and files it only with `node scripts/request-visual.mjs <requestsDir> <draft> [--worktree <dir>]`, which names it `<session>-<yyyymmdd-hhmm>-<slug>.md`. The script refuses, naming both SHAs, unless `Pushed head` equals the PR's current head (read with `gh`) and the worktree's HEAD, and refuses when `gh` cannot answer or a field is unfilled. On a remote machine `fleet.sh` ships it to `<REMOTE_STATE_DIR>/.fleet-orchestrator/fleet-orchestrator/scripts/`. A Claude worker does the work and writes its result to `findings/` under the same name; you steer the result back to the session as text.
+A Codex session drafts this and files it only with `node scripts/request-visual.mjs <requestsDir> <draft> [--worktree <dir>]`, which refuses an unpushed or stale head and an unfilled field (on a remote machine `fleet.sh` ships it to `<REMOTE_STATE_DIR>/.fleet-orchestrator/fleet-orchestrator/scripts/`). A Claude worker writes its result to `findings/` under the same name; you steer it back to the session as text.
 
 ```
 # Visual request: <short title>
@@ -21,7 +21,7 @@ Requirement: <ticket, PRD or acceptance criterion this proves>
 
 ## Worker preamble
 
-Prepend to every Claude writer prompt; keep the `Takeover` line only when replacing a dead Codex writer, and the `Inherited scope` line whenever the writer continues another writer's branch. A Codex writer's prompt starts with `$vibe <ticket or PRD>` instead of the first line.
+Prepend to every Claude writer prompt; keep `Takeover` only when replacing a dead Codex writer and `Inherited scope` whenever the writer continues another writer's branch. A Codex writer's prompt starts with `$vibe <ticket or PRD>` instead of the first line.
 
 ```
 Invoke vibe:vibe first: resume the vibe session for <ticket or PRD>, or start one for it, and follow its rules for all of the work below.
@@ -32,8 +32,8 @@ Before editing, read the repo docs that own the paths you touch (AGENTS.md files
 Research graph-first with closedloop-graph before searching files by hand, as vibe requires: ticket_detail for the ticket and its PRD, query_collisions and blast_radius_tickets for overlapping work, code_callers and code_importers before a shared change.
 Tests: after any change, fix or merge (a conflict resolution included), run exactly the tests code_tests_for maps to the files it touched, nothing broader by default; files that map to no tests (changelog, README, version text) run none and CI confirms.
 Heavy checks go through <fleet.sh slot command for the chosen machine>. Never run e2e that opens windows on the operator's daily machine.
-Commands expected to take more than a few minutes run in the background. Check the worker inbox between steps so orchestration rulings are applied before more work.
-Questions to the orchestrator end with `If no answer by <time, 30 minutes on>: <your default>` and are recorded with `board.mjs <orchDir> question <you> --text <question>`; keep working meanwhile and past it proceed on the default (never for a flag, copy, destructive, credential or scope question). A question never holds your PR: ship what is done, arm auto-merge, put the answer-dependent part in a follow-up.
+Commands expected to take more than a few minutes run in the background (never a foreground wait over 5 minutes), and you end the turn while they run, so messages reach you. Check the worker inbox between steps so orchestration rulings are applied before more work.
+Questions to the orchestrator end with `If no answer by <time, 30 minutes on>: <your default>` and an id, recorded with `board.mjs <orchDir> question <you> --id <id> --text <question>`; acknowledge each answer by its id (`board.mjs <orchDir> ack <you> --id <id>`) in your next status; keep working meanwhile and past it proceed on the default (never for a flag, copy, destructive, credential or scope question). A question never holds your PR: ship what is done, arm auto-merge, put the answer-dependent part in a follow-up.
 Git: commit messages per the repo's conventions; regular push only, never force or amend after push.
 Review threads: reply on the thread naming the fixing SHA and resolve it only after the fix is verified in code.
 Artifacts for people (tickets, PR bodies, PR comments, review replies): never name a path on the operator's machine (home, temp, scratchpad or worktree paths) or say something is on someone's laptop. Embed screenshots as uploaded images and quote text evidence inline, briefly. A plan is attached, never pointed at: link the implementation plan as a plan document, and upload a QA plan or other working file as a ticket attachment named by its attachment name.
@@ -48,7 +48,7 @@ Task:
 
 ## Resume prompt
 
-Starts a Codex writer on work another writer began, or a fresh thread after a move or reboot. Fill it from the resume log and the last writer's report; for a Claude writer use the worker preamble with its `Takeover` line instead. `fleet.sh` refuses a prompt with a `Done:` line and no `Re-verify:` line.
+Starts a Codex writer on work another writer began, or a fresh thread after a move or reboot, filled from the resume log and the last writer's report; a Claude writer gets the worker preamble with its `Takeover` line instead. `fleet.sh` refuses a `Done:` line without `Re-verify:`.
 
 ```
 $vibe resume the vibe session for <ticket or PRD>.
@@ -68,7 +68,7 @@ Artifacts for people (tickets, PR bodies, PR comments, review replies): never na
 
 ## QA guide prompt
 
-Primes a headless Claude session the operator resumes for one PR's human QA. Allow it to read files, run `gh pr view`, use the skill, and write only the plan and the findings file.
+Primes the headless Claude session the operator resumes for one PR's human QA. Allow it to read files, run `gh pr view`, use the skill, and write only the plan and the findings file.
 
 ```
 You are the QA guide for <owner/repo>#<number>. You never edit code.
@@ -82,11 +82,11 @@ Record each result in the plan. Append each failure (checkpoint, what the operat
 
 ## Operator review page
 
-Keep all findings the operator reviews on one page. Assign each a stable,
-never-reused ID: `D###` decision needed, `X###` fixing, `N###` stands,
-`S###` superseded or `R###` ruling. Preserve the ID when its status changes.
-Run `node scripts/review-page-check.mjs <orchDir>/review.md` before showing it;
-a `D###` row also says `checked in code: <file>:<line>`.
+One page for every finding the operator reviews, each with a stable,
+never-reused ID kept through status changes: `D###` decision needed,
+`X###` fixing, `N###` stands, `S###` superseded or `R###` ruling. A `D###`
+row says `checked in code: <file>:<line>`; run
+`node scripts/review-page-check.mjs <orchDir>/review.md` before showing it.
 
 ```
 <ID> | <status> | <PR or surface> | <finding and evidence; for a decision, checked in code: <file>:<line>> | <recommendation or resolution>
@@ -94,7 +94,7 @@ a `D###` row also says `checked in code: <file>:<line>`.
 
 ## Flag approval
 
-Send to the operator before any worker adds a feature flag key; nothing is gated until they approve that key.
+Send before any worker adds a feature flag key; nothing is gated until the operator approves that key.
 
 ```
 Flag approval: <key>
