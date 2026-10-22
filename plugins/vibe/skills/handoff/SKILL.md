@@ -320,7 +320,8 @@ outside the allowed paths). When a removal does undo one:
 - the touched screen is rendered again in the verify worker's control mode on
   the final commit, never left as last seen.
 
-Re-run inventory and independent read-only guardrails checks. Keep the writer's Design blocks for the ticket. A flag key without
+Re-run inventory and independent read-only guardrails checks; every cleared
+`Control:` citation must name that control on that surface. Keep the writer's Design blocks for the ticket. A flag key without
 the person's recorded yes gets its approval question once, as the vibe
 skill's section 7 says; with no yes the writer removes the gate.
 
@@ -477,7 +478,8 @@ visual QA (`/visual-qa` in Claude Code, `$visual-qa` in Codex) for a UI
 change, against the session's acceptance criteria when the ticket or its PRD
 has them and otherwise as the design pack's best-practice review
 (`../vibe/references/quality-loop.md`, "Visual QA during the session",
-"What it checks"), logical QA (`/logical-qa`, `$logical-qa`) for a data or metric
+"What it checks"); its rendered-control inventory flags anything with no
+sourced requirement. Run logical QA (`/logical-qa`, `$logical-qa`) for a data or metric
 surface, then product-contract QA (`/metal-andrew`, `$metal-andrew`) once that
 evidence is visible. Each skill dispatches its own read-only agents. Confirmed
 findings resume the SAME writer in fix mode for every touched surface, even when
@@ -905,7 +907,8 @@ every two minutes and stops on a conflict (merge main at once in final-merge
 mode, push, run it again), failed checks (the SAME writer fixes them), an
 unresolved round-one review thread the writer has not answered last (armed
 auto-merge is not done), a later-round thread (pass `--round-one-fixed-at`
-once round one is pushed; triage it into the one follow-up ticket with
+and `--single-review-ruling` once round one is pushed, only while that ruling
+is in force; triage it into the one follow-up ticket with
 `../vibe/scripts/review-followup.mjs`, reply with its link or why it is
 invalid, and resolve it with `review-threads.mjs`, round `later`), a merge or
 a close.

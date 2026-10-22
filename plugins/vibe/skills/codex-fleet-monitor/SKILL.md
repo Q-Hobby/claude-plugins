@@ -20,7 +20,7 @@ A Codex turn that hits a usage limit stays open and stops producing items, so "i
 
 ## Set up a work dir
 
-Pick a scratch dir (one per orchestration) and create:
+Use fleet-orchestrator's fleet home (its active program; `scripts/work-dir.mjs` resolves it and derives the state dirs) or a dir of your own per orchestration, and create:
 
 `config.env`
 
@@ -28,6 +28,7 @@ Pick a scratch dir (one per orchestration) and create:
 LOCAL_STATE_DIR=/path/to/local/state/files   # only for two-column sessions
 REMOTE_HOST=user@host            # omit when there are no remote sessions
 REMOTE_STATE_DIR=/path/on/remote # remote scratch dir; also holds state files for two-column sessions
+# REMOTE_FLEET_HOME=/path/on/remote  # in a fleet home, replaces REMOTE_STATE_DIR and REMOTE_REQUESTS_DIR
 REMOTE_SHELL="zsh -lic"          # login shell so node/codex are on PATH (default)
 STALL_SECONDS=720                # no new thread items for this long means STALLED (default 12m)
 # CLAUDE_USAGE=0                 # turn off the claude-usage line; CLAUDE_USAGE_SECONDS=600 sets how often it is read
@@ -60,7 +61,7 @@ REMOTE_REQUESTS_DIR=/path/on/remote/requests  # optional: the same on REMOTE_HOS
 
 The label is what appears in the output lines.
 
-`prs.txt`: the watch set, one line per PR, `owner/repo <number> [<writer>]`. The snapshot adds open PRs from `WATCH_NEW_PR_REPOS` on any branch, and drops a merged or closed PR after reporting it once; add the writer column when you assign a PR so `STALE-PR` names whom to nudge. A Claude pane writer has no turn state to read, so `STALE-PR` on its PR is its liveness signal.
+`prs.txt`: the watch set, one line per PR, `owner/repo <number> [<writer>]`. The snapshot adds open PRs from `WATCH_NEW_PR_REPOS` on any branch, except one in `prs-ignore.txt` or another program's `prs.txt` (another chat owns it), and drops a merged or closed PR after reporting it once; add the writer column when you assign a PR so `STALE-PR` names whom to nudge. A Claude pane writer has no turn state to read, so `STALE-PR` on its PR is its liveness signal.
 
 ## Run
 

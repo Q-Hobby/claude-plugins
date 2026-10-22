@@ -100,8 +100,8 @@ rules:
   head: the lock refuses a second entry from the same worktree (exit 76). The containerized stack
   is one per machine (one compose project name, fixed ports and shared
   Dagger cache volumes), so start it only through
-  `node ../skills/vibe/scripts/e2e-lock.mjs run <the e2e command>`, which
-  waits until no other session's stack is running. Its exit 75 means the
+  `node ../skills/vibe/scripts/e2e-lock.mjs run --head <sha> <the e2e command>`, which
+  waits until no other session's stack is running and runs only that clean commit. Its exit 75 means the
   stack stayed busy past the wait: record that limitation with the holder it
   prints, never a pass, and never start the stack around the lock.
   When Docker or Dagger is missing, record that exact limitation; never claim
@@ -269,7 +269,8 @@ session touched:
    `pnpm control console --level pageerror` and `pnpm control network`. Add
    `pnpm control api GET <path>` for the record the screen shows, and
    `pnpm control ipc <namespace.method>` read calls for a Desktop screen,
-   where relevant.
+   where relevant. Inventory the rendered controls against the sourced
+   requirements and report every control with no source on that surface.
 4. When a baseline exists (an earlier control capture of the same entry on
    the merge-base or current main, never a commit that is not an ancestor),
    return its artifact paths beside the new ones and say what changed. When the session recorded reference images

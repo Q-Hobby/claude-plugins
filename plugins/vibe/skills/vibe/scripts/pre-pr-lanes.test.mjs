@@ -14,12 +14,14 @@ const REPORT = [
   "",
   "OUTSIDE THE TURBO GRAPH: 2 lane(s).",
   "    pnpm test:desktop-renderer      (3 changed path(s) under apps/desktop/src/renderer)",
-  "    pnpm test:desktop-e2e           (1 changed path(s) in e2e-test.yml's desktop_e2e filter)",
+  "    DESKTOP_E2E_SPECS='e2e/branches-grid.spec.ts e2e/it'\\''s.spec.ts' DESKTOP_E2E_PROJECTS='desktop' pnpm --filter desktop test:e2e (1 changed path(s) in e2e-test.yml's desktop_e2e filter)",
+  "      CI runs it whole, the selector widened.",
   "",
 ].join("\n");
+const DESKTOP_E2E = "DESKTOP_E2E_SPECS='e2e/branches-grid.spec.ts e2e/it'\\''s.spec.ts' DESKTOP_E2E_PROJECTS='desktop' pnpm --filter desktop test:e2e";
 
-test("the lanes come from the report's commands; e2e lanes are skipped by default", () => {
-  assert.deepEqual(reportLanes(REPORT), ["pnpm --filter @repo/app test", "pnpm test:desktop-renderer"]);
+test("every lane the report names is required, e2e lanes and lanes with the step's variables included (#9116 merged with Desktop E2E reds)", () => {
+  assert.deepEqual(reportLanes(REPORT), ["pnpm --filter @repo/app test", "pnpm test:desktop-renderer", DESKTOP_E2E]);
   assert.deepEqual(reportLanes("No paths changed against origin/main; there is nothing to cover.\n"), []);
   assert.equal(reportLanes("something went wrong\n"), null, "an unreadable report is never read as no lanes");
 });
@@ -44,8 +46,44 @@ test("the PR-open check refuses a diff naming desktop-renderer with no recorded 
   const refused = run("check", "--worktree", worktree, "--report", report);
   assert.equal(refused.status, 1);
   assert.match(refused.stdout, /^MISSING-LANE pnpm test:desktop-renderer:/m);
-  for (const lane of reportLanes(REPORT)) assert.equal(run("record", "--worktree", worktree, "--command", lane, "--result", "pass").status, 0);
+  assert.match(refused.stdout, /^MISSING-LANE DESKTOP_E2E_SPECS=.* pnpm --filter desktop test:e2e:/m);
+  assert.equal(run("check", "--worktree", worktree, "--report", report, "--skip", "e2e").status, 2, "a skip needs the operator ruling that waives it");
+  const waived = run("check", "--worktree", worktree, "--report", report, "--skip", "test:e2e", "--skip-ruling", "deadline mode, operator, 2026-10-22, rulings.md");
+  assert.match(waived.stdout, /^SKIPPED-LANE DESKTOP_E2E_SPECS=.* \(deadline mode, operator, 2026-10-22, rulings.md\)$/m);
+  const head = git(worktree, ["rev-parse", "HEAD"], home).trim();
+  for (const lane of reportLanes(REPORT)) assert.equal(run("record", "--worktree", worktree, "--head", head, "--command", lane, "--result", "pass").status, 0);
   assert.equal(run("check", "--worktree", worktree, "--report", report).status, 0);
   git(worktree, ["commit", "--quiet", "--allow-empty", "-m", "more"], home);
   assert.equal(run("check", "--worktree", worktree, "--report", report).status, 1, "a new head needs the lanes run again");
+});
+
+test("a result names the commit it ran: a run refuses another HEAD or a modified tracked file (23/23 reported for an untested PR)", (t) => {
+  const { root, home, cleanup } = makeHome("vibe-pre-pr-lanes-head-");
+  t.after(cleanup);
+  const worktree = path.join(root, "wt");
+  git(root, ["init", "--quiet", "--initial-branch=main", worktree], home);
+  writeFileSync(path.join(worktree, "a.txt"), "one\n");
+  git(worktree, ["add", "a.txt"], home);
+  git(worktree, ["commit", "--quiet", "-m", "base"], home);
+  const old = git(worktree, ["rev-parse", "HEAD"], home).trim();
+  git(worktree, ["commit", "--quiet", "--allow-empty", "-m", "the PR head"], home);
+  const intended = git(worktree, ["rev-parse", "HEAD"], home).trim();
+  const run = (...args) => spawnSync(process.execPath, [SCRIPT, ...args], { encoding: "utf8", env: { ...process.env, HOME: home } });
+  git(worktree, ["checkout", "--quiet", old], home);
+  const stale = run("run", "--worktree", worktree, "--head", intended, "--command", "true");
+  assert.equal(stale.status, 2);
+  assert.match(stale.stderr, /^HEAD-MISMATCH the worktree is at /);
+  assert.equal(run("record", "--worktree", worktree, "--head", intended, "--command", "pnpm test", "--result", "pass").status, 2, "a result from another commit is never recorded");
+  git(worktree, ["checkout", "--quiet", intended], home);
+  writeFileSync(path.join(worktree, "a.txt"), "leftover\n");
+  const dirty = run("run", "--worktree", worktree, "--head", intended.slice(0, 10), "--command", "true");
+  assert.equal(dirty.status, 2);
+  assert.match(dirty.stderr, /^DIRTY-WORKTREE .*a\.txt/);
+  git(worktree, ["checkout", "--quiet", "--", "a.txt"], home);
+  const clean = run("run", "--worktree", worktree, "--head", intended.slice(0, 10), "--command", "true");
+  assert.equal(clean.status, 0, clean.stderr);
+  assert.match(clean.stdout, new RegExp(`^recorded pass for true at ${intended}$`, "m"));
+  const moved = run("run", "--worktree", worktree, "--head", intended, "--command", `git checkout --quiet ${old}`);
+  assert.equal(moved.status, 1, "HEAD moving during the run fails it");
+  assert.match(moved.stdout, /^HEAD-MOVED /m);
 });

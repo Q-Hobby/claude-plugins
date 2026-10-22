@@ -176,3 +176,30 @@ test('the watch set adds open PRs on any branch prefix and drops a merged PR aft
   assert.match(watched, /^acme\/app 9116 writer-9098$/m);
   assert.doesNotMatch(f.run('ok'), /#42 /, 'and then it leaves the watch set');
 });
+
+test('a PR another chat owns is never added or reported: prs-ignore.txt, or another program in the same fleet home (#9058)', TIMEOUT, () => {
+  const f = fixture();
+  const ago = new Date(Date.now() - 100 * 60_000).toISOString().replace(/\.\d{3}Z$/, 'Z');
+  writeFileSync(join(f.work, 'prs.txt'), 'acme/app 9058 their-writer\n');
+  writeFileSync(join(f.root, 'view-9058'), 'OPEN abcdef12 REVIEW_REQUIRED CONFLICTING\n');
+  writeFileSync(join(f.root, 'push-9058'), `false ${ago}\n`);
+  writeFileSync(join(f.root, 'mine'), '9058\n9149\n');
+  writeFileSync(join(f.work, 'prs-ignore.txt'), 'acme/app 9058\n');
+  const out = f.run('ok');
+  assert.doesNotMatch(out, /#9058 /, 'an ignored PR is never reported, so never STALE-PR, even when listed by hand');
+  const watched = readFileSync(join(f.work, 'prs.txt'), 'utf8');
+  assert.doesNotMatch(watched, /^acme\/app 9058$/m);
+  assert.match(watched, /^acme\/app 9149$/m);
+  const home = join(f.root, 'home');
+  mkdirSync(join(home, 'programs', 'other'), { recursive: true });
+  mkdirSync(join(home, 'programs', 'mine'));
+  writeFileSync(join(home, 'current'), 'mine\n');
+  writeFileSync(join(home, 'programs', 'mine', 'config.env'), 'WATCH_NEW_PR_REPOS="acme/app"\n');
+  writeFileSync(join(home, 'programs', 'other', 'prs.txt'), 'acme/app 9149 their-writer\n');
+  writeFileSync(join(f.root, 'gh-mode'), 'ok');
+  const result = spawnSync('zsh', [SNAPSHOT, home], { env: { ...process.env, FAKE_ROOT: f.root, PATH: `${join(f.root, 'bin')}:${process.env.PATH}`, FLEET_SUPERVISOR_LOCK: join(f.root, 'supervisor.lock') }, encoding: 'utf8', timeout: 50_000 });
+  assert.equal(result.status, 0, result.stderr);
+  const mine = readFileSync(join(home, 'programs', 'mine', 'prs.txt'), 'utf8');
+  assert.doesNotMatch(mine, /^acme\/app 9149$/m, 'the other program owns it');
+  assert.match(mine, /^acme\/app 9058$/m);
+});
