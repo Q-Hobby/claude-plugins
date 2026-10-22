@@ -80,3 +80,60 @@ test('watch.sh records its pid at start, and a killed watcher reads as dead', { 
   await exited;
   assert.equal(watcherState(dir).line, `watcher MISSING(pid ${child.pid} dead)`);
 });
+
+test('a second watch.sh on the same work dir is refused while the first runs, and starts once it is gone', { timeout: 30_000 }, async (t) => {
+  const dir = workDir(t);
+  writeFileSync(join(dir, 'last-snapshot.txt'), 'session local a RUN\n');
+  const child = spawn('zsh', [WATCH, dir, '600'], { stdio: 'ignore', detached: true });
+  const killGroup = () => {
+    if (!(child.pid > 1)) return;
+    try {
+      process.kill(-child.pid, 'SIGKILL');
+    } catch {
+      // Already gone.
+    }
+  };
+  t.after(killGroup);
+  for (let i = 0; i < 100 && !existsSync(join(dir, 'watcher.json')); i += 1) await new Promise((resolve) => setTimeout(resolve, 100));
+  // Detached too, so if it is not refused, killing its group also ends the sleep it would wait in.
+  const second = spawn('zsh', [WATCH, dir, '600'], { stdio: ['ignore', 'ignore', 'pipe'], detached: true });
+  t.after(() => {
+    if (second.pid > 1) {
+      try {
+        process.kill(-second.pid, 'SIGKILL');
+      } catch {
+        // Already gone.
+      }
+    }
+  });
+  let stderr = '';
+  second.stderr.on('data', (chunk) => { stderr += chunk; });
+  const status = await Promise.race([
+    new Promise((resolve) => second.on('exit', resolve)),
+    new Promise((resolve) => setTimeout(() => resolve('still running'), 5_000)),
+  ]);
+  assert.equal(status, 3);
+  assert.match(stderr, new RegExp(`watcher pid ${child.pid} already runs`));
+  assert.match(stderr, /run_in_background\), never with &/);
+  assert.equal(JSON.parse(readFileSync(join(dir, 'watcher.json'), 'utf8')).pid, child.pid, 'the refused copy leaves the live watcher record alone');
+  const exited = new Promise((resolve) => child.on('exit', resolve));
+  killGroup();
+  await exited;
+  // SIGKILL skips the EXIT trap, so the lock is left behind with a dead pid; the next start takes it over.
+  const third = spawn('zsh', [WATCH, dir, '600'], { stdio: 'ignore', detached: true });
+  t.after(() => {
+    if (third.pid > 1) {
+      try {
+        process.kill(-third.pid, 'SIGKILL');
+      } catch {
+        // Already gone.
+      }
+    }
+  });
+  let state = null;
+  for (let i = 0; i < 100 && state?.pid !== third.pid; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    try { state = JSON.parse(readFileSync(join(dir, 'watcher.json'), 'utf8')); } catch { state = null; }
+  }
+  assert.equal(state?.pid, third.pid);
+});

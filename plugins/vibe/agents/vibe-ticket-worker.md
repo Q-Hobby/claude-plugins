@@ -160,6 +160,16 @@ F. Status. The PLN's status follows the work:
    external dependency evidence. A ticket that still says the collector,
    selector, monitor or other dependency is missing keeps that task open and
    the PLN `DRAFT`; return `NEEDS_CHANGE` rather than approving it.
+   You never set a PLN's approver, so the `APPROVED` you set means built
+   and checked, never a human approval: set it only when `get-document`
+   shows a human `approverId`, or when the published text starts with the
+   `Self-approved` line `session-plan.mjs` renders (version an older text
+   in D first). Before setting it, save the PLN's
+   `get-document` JSON and its latest text and run
+   `node ../skills/handoff/scripts/rulings-check.mjs --plan <json> --plan-body <text>`;
+   each exclusion it names (out of scope, deferred, not covered, a GAP line)
+   goes back to the writer as `NEEDS_CHANGE`: cite the ticket AC, PRD or
+   operator ruling behind it, or bring the work back into scope.
 
 ## Create mode
 
@@ -216,7 +226,7 @@ With `mergeCheck: true`, change nothing else: run
 `gh pr list --repo closedloop-ai/symphony-alpha --head <session branch> --state merged --json number,url,mergedAt`
 from the worktree. When it lists a merged pull request and the PLN is not
 `EXECUTED`, run
-`node ../skills/handoff/scripts/executed-check.mjs --file <its saved latest text> --last-merge <mergedAt>`;
+`node ../skills/handoff/scripts/executed-check.mjs --kind plan --file <its saved latest text> --last-merge <mergedAt>`;
 when it fails, append a version adding the section it names (the session's
 flag keys, each read now from the flag service), and rerun it. Only once it
 passes, set `EXECUTED` through step F (with `expectedStatus` the status you

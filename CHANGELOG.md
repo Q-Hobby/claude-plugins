@@ -4,6 +4,26 @@ All notable changes to the claude-plugins project will be documented in this fil
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Entries are listed newest-first; each plugin section is treated as released when merged to `main`.
 
+### vibe v1.0.75
+
+The open fleet lessons from the 2026-10-21 and 2026-10-22 orchestration runs, each with a mechanical check where one fits, and a watcher bug found while checking them.
+
+#### Fixed
+- `liveness.mjs` run as a command (as the watcher runs it) printed `READFAIL` for every failed turn: its entry point awaited `main()` above the constants that classify turn errors, so classifying one threw. The entry point is last, a command-level test reads a usage-limit turn as `LIMIT`, and a contract test refuses a top-level `const`, `let` or `class` below a top-level `await main()` in any plugin script.
+- A watcher `IDLE` line says `NEEDS-REPLY` when any line of the final message asks a question or asks for permission, authorization or approval, not only when the message ends in one. A writer that asked "May I ...?" and ended on a status sentence waited unread.
+
+#### Added
+- A thread the App Server unloaded (`notLoaded`) after its turn finished reads `IDLE` with its final message, the same as a loaded one; a test proves it, so no code change was needed.
+- `liveness.mjs` adds `MODEL(<model>/<effort>!=<want>)` to a session whose thread runs on another model or effort than `CODEX_MODEL` and `CODEX_EFFORT`, and `fleet.sh` refuses a new Codex session without a model as well as an effort.
+- A watched PR line carries `threads=<n>` unresolved review threads and ends `BLOCKED(unresolved threads)` while an open PR has any, apart from its review decision and checks; approved PRs with auto-merge armed once sat blocked for hours.
+- `watch.sh` holds a lock per work dir; a second copy (one started with `&`) exits 3 and says to start it with the harness's background option, and a lock whose pid died is taken over.
+- fleet-orchestrator: `board.mjs duty` gives each standing duty (main's post-merge health, a PR shepherd, the watcher) an owner, `status` prints `UNOWNED-DUTY`, and `helpers.mjs stopped` refuses a helper that owns one. `status` also prints `SLOW` for a Codex writer 30 minutes without a push while its PR has unresolved human threads, the cue to hand it to a Claude writer.
+- `executed-check.mjs` takes `--kind plan|prd`; a PRD also needs `--children` and is refused while any PRODUCES child is not DONE or CANCELED.
+- `review-page-check.mjs` refuses a decision row without `checked in code: <file>:<line>`, and vibe's `session-questions.mjs ask` refuses a request for permission to do in-scope work (a test repair, a main merge, a push, a fix); the change worker does that work and reports it.
+- `lessons-pr.mjs` names an open lessons PR to push onto before another is opened.
+- Every PLN vibe publishes starts with a `Self-approved` line (`session-plan.mjs`), since vibe sets a PLN's status but never its approver; the ticket worker sets `APPROVED` only on a plan with a human approver or that line. `rulings-check.mjs --plan` reads a PLN's `get-document` JSON: an `APPROVED` or `EXECUTED` plan with no human approver fails without the line, and any plan with no human approver fails on each out-of-scope, non-goal, excluded, deferred, descoped, obsolete, not-covered or GAP item that cites no ticket AC, PRD or operator ruling. The ticket worker runs it before setting a PLN `APPROVED`, handoff runs it on every linked PLN, and fleet-orchestrator runs it at dispatch and QA prep and states the operator's scope-source ruling; takeover and resume prompts make the incoming writer trace every inherited exclusion to a human source or build or escalate it.
+- fleet-orchestrator prose: near a Codex usage limit, tell the operator with the available resets and, when they are away, move the busiest writers to Claude writers; group bug fixes into one umbrella ticket with PRs split by code area; work outside the program goes to its owner as a ticket.
+
 ### code-review v3.13.0
 
 #### Fixed
