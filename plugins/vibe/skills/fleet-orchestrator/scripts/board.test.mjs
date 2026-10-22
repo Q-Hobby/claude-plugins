@@ -27,7 +27,7 @@ test('a writer row whose head is behind the pushed head is stale until the write
   assert.equal(run([dir, 'writer', 'w1', '--head', 'bbb', '--status', 'QA ready']).status, 0);
   assert.equal(run([dir, 'status', '--pushed', 'w1=bbb']).status, 0);
   const page = readFileSync(path.join(dir, 'board.md'), 'utf8');
-  assert.match(page, /^\| w1 \| #101 \| bbb \| QA ready \| w2 \| /m, 'the update keeps the PR and dependencies');
+  assert.match(page, /^\| w1 \| #101 \| bbb \|  \| QA ready \| w2 \| /m, 'the update keeps the PR and dependencies');
   assert.match(page, /w1: head bbb, status QA ready/);
 });
 
@@ -121,4 +121,63 @@ test('unresolved human threads are read with gh for a Codex row with a PR and re
   assert.equal(run([dir, 'writer', 'w1', '--runtime', 'codex', '--pr', '7', '--repo', 'acme/app', '--head', 'aaa', '--now', '2026-10-21T12:00:00Z']).status, 0);
   const slow = run([dir, 'status', '--now', '2026-10-21T13:00:00Z'], { BOARD_GH: gh });
   assert.match(slow.stdout, /^SLOW w1 no push for 60m with 2 unresolved human threads; hand it to a Claude writer$/m);
+});
+
+test('a work dir that watches sessions or PRs fails status while its watcher is missing (7 quiet hours overnight)', (t) => {
+  const dir = tempDir(t);
+  assert.equal(run([dir, 'status']).status, 0, 'no watch list, no watcher expected');
+  writeFileSync(path.join(dir, 'prs.txt'), 'acme/app 7\n');
+  assert.equal(run([dir, 'duty', 'green-watch', '--owner', 'w1']).status, 0);
+  assert.equal(run([dir, 'duty', 'status-sweep', '--owner', 'w1']).status, 0);
+  assert.equal(run([dir, 'writer', 'w1']).status, 0);
+  const missing = run([dir, 'status', '--now', '2026-10-22T06:00:00Z']);
+  assert.equal(missing.status, 1);
+  assert.match(missing.stdout, /^WATCHER-MISSING \(no watcher\.json\): re-arm watch\.sh now/m);
+  writeFileSync(path.join(dir, 'watcher.json'), JSON.stringify({ pid: process.pid, startedAt: '2026-10-22T05:50:00Z', lastTickAt: '2026-10-22T05:59:00Z', intervalSeconds: 120 }));
+  const armed = run([dir, 'status', '--now', '2026-10-22T06:00:00Z']);
+  assert.equal(armed.status, 0, armed.stdout);
+  writeFileSync(path.join(dir, 'watcher.json'), JSON.stringify({ pid: process.pid, startedAt: '2026-10-22T05:50:00Z', lastTickAt: '2026-10-22T05:59:00Z', intervalSeconds: 120, exitedAt: '2026-10-22T05:59:00Z' }));
+  assert.match(run([dir, 'status', '--now', '2026-10-22T13:00:00Z']).stdout, /^WATCHER-MISSING \(exited 421m ago\)/m);
+});
+
+test('a writer question waiting 15 minutes is QUESTION-UNANSWERED until answered (#9118)', (t) => {
+  const dir = tempDir(t);
+  assert.equal(run([dir, 'question', 'w1', '--text', 'Sort by rank or updated? If no answer by 09:04Z: rank', '--now', '2026-10-22T08:34:00Z']).status, 0);
+  assert.equal(run([dir, 'status', '--now', '2026-10-22T08:48:00Z']).status, 0, 'fourteen minutes is not yet late');
+  const late = run([dir, 'status', '--now', '2026-10-22T08:49:00Z']);
+  assert.equal(late.status, 1);
+  assert.match(late.stdout, /^QUESTION-UNANSWERED w1 15m: Sort by rank or updated\?/m);
+  assert.equal(run([dir, 'answered', 'w1', '--now', '2026-10-22T08:50:00Z']).status, 0);
+  assert.equal(run([dir, 'status', '--now', '2026-10-22T13:00:00Z']).status, 0);
+  assert.equal(run([dir, 'question', 'w1']).status, 2);
+});
+
+test('a watched program needs a green-watch owner; REQUIRED_DUTIES names others', (t) => {
+  const dir = tempDir(t);
+  writeFileSync(path.join(dir, 'prs.txt'), 'acme/app 7\n');
+  writeFileSync(path.join(dir, 'watcher.json'), JSON.stringify({ pid: process.pid, startedAt: '2026-10-22T05:50:00Z', lastTickAt: '2026-10-22T05:59:00Z', intervalSeconds: 120 }));
+  const now = ['--now', '2026-10-22T06:00:00Z'];
+  const bare = run([dir, 'status', ...now]);
+  assert.equal(bare.status, 1);
+  assert.match(bare.stdout, /^MISSING-DUTY green-watch: give it an owner/m);
+  assert.equal(run([dir, 'writer', 'keeper']).status, 0);
+  assert.equal(run([dir, 'duty', 'green-watch', '--owner', 'keeper']).status, 0);
+  assert.match(run([dir, 'status', ...now]).stdout, /^MISSING-DUTY status-sweep/m, 'the status sweep is a standing duty too');
+  assert.equal(run([dir, 'duty', 'status-sweep', '--owner', 'keeper']).status, 0);
+  assert.equal(run([dir, 'status', ...now]).status, 0);
+  writeFileSync(path.join(dir, 'config.env'), 'REQUIRED_DUTIES="green-watch pr-shepherd"\n');
+  assert.match(run([dir, 'status', ...now]).stdout, /^MISSING-DUTY pr-shepherd/m);
+});
+
+test('a head is pushed for a writer only when the writer declared it ready (a partial commit was pushed)', (t) => {
+  const dir = tempDir(t);
+  assert.equal(run([dir, 'writer', 'w1', '--head', 'a77421d8fa00']).status, 0);
+  const none = run([dir, 'push-check', 'w1', '--head', 'a77421d8fa00']);
+  assert.equal(none.status, 1);
+  assert.match(none.stdout, /^NOT-READY w1 head a77421d8fa00, declared ready none/);
+  assert.equal(run([dir, 'writer', 'w1', '--ready', '5ec6633da7ff']).status, 0);
+  assert.equal(run([dir, 'push-check', 'w1', '--head', 'a77421d8fa00']).status, 1, 'the committed head is not the ready one');
+  assert.equal(run([dir, 'push-check', 'w1', '--head', '5ec6633da7']).status, 0);
+  assert.equal(run([dir, 'push-check', 'w1', '--head', '5ec']).status, 1, 'a short prefix proves nothing');
+  assert.match(readFileSync(path.join(dir, 'board.md'), 'utf8'), /\| w1 \|  \| a77421d8fa00 \| 5ec6633da7ff \|/);
 });

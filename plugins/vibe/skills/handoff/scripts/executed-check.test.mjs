@@ -3,7 +3,7 @@ import { writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { childProblems, executedProblems } from "./executed-check.mjs";
+import { childProblems, executedProblems, ticketProblems } from "./executed-check.mjs";
 import { makeHome, runNode } from "../../vibe/scripts/test-fixtures.mjs";
 
 const SCRIPT = path.join(path.dirname(fileURLToPath(import.meta.url)), "executed-check.mjs");
@@ -58,9 +58,50 @@ test("a PRD is executed only when every PRODUCES child is DONE or CANCELED", (t)
   writeFileSync(done, JSON.stringify([{ slug: "A-1", status: "DONE" }]));
   const args = ["--kind", "prd", "--file", prd, "--last-merge", MERGED];
   assert.match(runNode(SCRIPT, args, home.home).json.error, /--kind prd needs --children/);
-  assert.match(runNode(SCRIPT, ["--file", prd, "--last-merge", MERGED], home.home).json.error, /--kind plan or --kind prd is required/);
+  assert.match(runNode(SCRIPT, ["--file", prd, "--last-merge", MERGED], home.home).json.error, /--kind plan, --kind prd or --kind ticket is required/);
   const refused = runNode(SCRIPT, [...args, "--children", open], home.home);
   assert.equal(refused.status, 1);
   assert.deepEqual(refused.json.problems, ["child A-3 is IN_PROGRESS; a PRD is executed only when every PRODUCES child is DONE or CANCELED"]);
   assert.equal(runNode(SCRIPT, [...args, "--children", done], home.home).status, 0);
+});
+
+const TICKET = [
+  "## Scope and acceptance criteria",
+  "",
+  "- Scope: board rows",
+  "- Acceptance criteria:",
+  "  - [x] Rows reorder by drag",
+  "  - [ ] Moves beyond four levels are refused",
+  "  - [ ] Keyboard reorder; Follow-up: ISS-12001",
+  "  - [ ] Touch reorder; Excluded: Pat Example, 2026-10-21, ISS-12001 comment",
+  "",
+  "## Environment",
+].join("\n");
+
+test("a ticket is DONE only when every acceptance criterion is checked, followed up or excluded by a human (bulk DONE sweep)", (t) => {
+  assert.deepEqual(ticketProblems(TICKET), [
+    "AC-2 is unchecked: \"Moves beyond four levels are refused\"; check it against the merged code, or name `Follow-up: <slug>` or `Excluded: <human name or operator ruling>, <YYYY-MM-DD>` on it",
+  ]);
+  assert.deepEqual(ticketProblems(TICKET.replace("- [ ] Moves", "- [x] Moves")), []);
+  assert.match(ticketProblems(TICKET.replace("Excluded: Pat Example, 2026-10-21", "Excluded: the plan")).join(), /AC-4 is unchecked/, "a plan is not a human exclusion");
+  assert.match(ticketProblems("# Bug\n\nIt breaks.\n").join(), /no acceptance criteria checkboxes/);
+  const heading = "## Acceptance Criteria\n\n- [x] One\n- [ ] Two\n\n## Notes\n- [ ] not a criterion\n";
+  assert.deepEqual(ticketProblems(heading).map((problem) => problem.slice(0, 16)), ["AC-2 is unchecke"]);
+  const home = makeHome("vibe-executed-check-");
+  t.after(home.cleanup);
+  const file = path.join(home.root, "ticket.md");
+  writeFileSync(file, TICKET);
+  assert.match(runNode(SCRIPT, ["--kind", "ticket", "--file", file], home.home).json.error, /--kind ticket needs --slug/);
+  const refused = runNode(SCRIPT, ["--kind", "ticket", "--file", file, "--slug", "ISS-12001"], home.home);
+  assert.equal(refused.status, 1);
+  assert.equal(refused.json.problems.length, 1);
+  writeFileSync(file, TICKET.replace("- [ ] Moves", "- [x] Moves"));
+  assert.equal(runNode(SCRIPT, ["--kind", "ticket", "--file", file, "--slug", "ISS-77", "--prd", "PRD-5"], home.home).status, 1, "the exclusion names neither this ticket nor its PRD");
+  assert.equal(runNode(SCRIPT, ["--kind", "ticket", "--file", file, "--slug", "ISS-12001"], home.home).status, 0);
+});
+
+test("an exclusion closes a ticket only in a ruling that names the ticket or its PRD (PRD-729 rollout tickets)", () => {
+  const body = "- Acceptance criteria:\n  - [ ] Roll out to cohorts with stop conditions; Excluded: Pat Example, 2026-10-21, ruling on the Desktop Labs toggle\n";
+  assert.equal(ticketProblems(body, ["ISS-9538", "PRD-729"]).length, 1, "a ruling about another surface");
+  assert.deepEqual(ticketProblems(body.replace("ruling on the Desktop Labs toggle", "ruling on PRD-729 rollout"), ["ISS-9538", "PRD-729"]), []);
 });

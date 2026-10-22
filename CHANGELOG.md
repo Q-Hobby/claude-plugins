@@ -4,6 +4,28 @@ All notable changes to the claude-plugins project will be documented in this fil
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Entries are listed newest-first; each plugin section is treated as released when merged to `main`.
 
+### vibe v1.0.76
+
+The open lessons and operator rulings from the 2026-10-22 fleet run, each with a mechanical check where one fits.
+
+#### Added
+- Questions carry a default and a deadline: `session-questions.mjs ask` needs `--default` and `--deadline-minutes` and returns the `If no answer by <time>: <default>` line that ends the message; a flag (or feature switch), copy, destructive, credential or scope-narrowing question waits with none. The recovery pass resumes an idle Codex writer on its default once the deadline passes (`proceeded-on-default`). Writers' questions once sat unanswered for seven hours overnight.
+- `watch.sh` exits with `HEARTBEAT` after `HEARTBEAT_SECONDS` (default 30 minutes) with no change, instead of `TIMEOUT` after about 6.7 hours, and `board.mjs status` fails with `WATCHER-MISSING` when a work dir that watches sessions or PRs has no running watcher.
+- `fleet.sh` refuses a prompt that hands over `Done:` claims without a `Re-verify:` line, and the takeover prompt makes the incoming writer re-verify each claim with a test or a measurement.
+- `migration-publish.mjs` refuses a push that adds a migration without a recorded `Migration test:` (an existing test that applies every migration counts), or one with a trigger, function or per-row work without a measured `Scale test:`; the environment worker runs it before every push, and handoff's diff rules run the same check. A pushed migration reaches shared preview schemas.
+- Handoff's `spec-change` diff rule blocks a change to an existing `*-spec` file or PRD Markdown without `Spec change: <path>: <human>, <date>, <where>`, and `rulings-check.mjs --criteria-before` blocks a ticket version that rewords or drops an acceptance criterion no human ruling amends.
+- `executed-check.mjs --kind ticket` refuses DONE while an acceptance criterion is unchecked without a follow-up ticket or a dated human exclusion; the ticket worker, cl-execute and cl-sweep run it before DONE, and `status-audit.mjs` needs each merged or DONE child's body and prints `UNREAD` and `UNCHECKED`.
+- One review round per pull request (operator ruling): `shepherd.mjs --round-one-fixed-at` stops with `threads` (exit 13) on an unresolved round-one thread the writer has not answered last, so armed auto-merge no longer reads as done, and with `later-threads` (exit 14) on one raised after the round-one fixes, which is triaged and never blocks the merge. `review-followup.mjs` keeps exactly one follow-up ticket per pull request (later rounds append criteria), and `review-threads.mjs` resolves a later thread answered with that ticket's link or a reason. The board and the shepherd share one thread reader (`pr-threads.mjs`).
+- A PreToolUse hook (`hooks/kill-guard.mjs`) refuses by-name and pattern kills, `xargs kill`, a command substitution, a pid of 1 or lower and a pid the session did not record (`kill-guard.mjs own <pid>`) in every Claude session with the plugin.
+- The watcher marks `STALE-PR` when an open PR with unresolved threads, a conflict, a draft flag or a failed check has had no push for 45 minutes, and `QUESTION-UNANSWERED` when an idle writer's question waited 15 minutes; `board.mjs question` does the same for Claude writers. Writers push at least every 45 minutes (`push-cadence.mjs`), never held for optional evidence, a default's deadline is at most 30 minutes, and `session-questions.mjs` refuses a question that holds a PR.
+- `rollout-gate.mjs` (handoff) needs each flag, rollback or rollout requirement in the ticket and its PRD backed by code at HEAD or a human ruling that names the ticket or PRD; `rulings-check.mjs --ruling --scope`, `executed-check.mjs --kind ticket --slug` and `status-audit.mjs` (`UNSCOPED`) refuse a ruling that names neither, and `qa-plan-check.mjs --criteria` makes each rollout requirement a checkpoint.
+- `board.mjs writer --ready` records each writer's push-ready head and `board.mjs push-check` refuses any other head, so a head is pushed on a writer's behalf only when the writer called it ready.
+- `green-watch.mjs` re-lists main's runs on every call and reports every lane of every run containing a program PR (`RED`, `PENDING`, `NO-RUN`), so a batch that starts later is not missed.
+- `claude-usage.mjs` adds a `claude-usage` watcher line from `claude -p "/usage"` (session and weekly bands on the Codex thresholds); fleet-orchestrator moves Claude writers to Codex near the limit.
+- `status-audit.mjs` is the program's status sweep: `PLAN-OPEN` for a DONE ticket whose plan is not EXECUTED and `ABSORBED-OPEN` for a child left open after its umbrella closed; `status-sweep` is a required board duty.
+- The requirements worker observes a reference product live through the signed-in browser or returns `NEEDS_PERSON`, never public help material, matching the quality loop.
+- fleet-orchestrator Program practices: green watch, load-aware placement (`fleet.sh slot heavy` refuses a machine over `MAX_LOAD_PER_CORE`), repo knowledge capture, close-out, deadline mode and runtime choice; `board.mjs status` prints `MISSING-DUTY` for a required duty (green-watch by default) with no owner.
+
 ### closedloop-core v1.5.2
 
 #### Fixed

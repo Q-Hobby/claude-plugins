@@ -410,7 +410,11 @@ Only after the person chose resume, run `node scripts/vibe-sessions.mjs list`
   - the fixes are pushed to the same branch (never forced);
   - the pull request body is refreshed from the session record;
   - each review thread is answered with the fixing commit and resolved once
-    fixed.
+    fixed, in round one. One review round per pull request: a thread raised
+    after the round-one fixes are pushed is never fixed in it; a valid one
+    becomes a criterion on the pull request's one follow-up ticket
+    (`scripts/review-followup.mjs`), and the thread gets that ticket's link
+    (or why it is invalid) and is resolved, so it never blocks the merge.
 
 Before offering anything, for each `handed-off` session whose
 `livePlanStatus` is `APPROVED`, dispatch `vibe-ticket-worker` in plan mode
@@ -840,7 +844,12 @@ except the startup version question, which runs once per conversation
 (section 1, "Plugin version"):
 
 1. Before asking, run `node scripts/session-questions.mjs ask --key <topic>
-   --question "<exact words>" [--worktree "<wt>"]`. For a product question,
+   --question "<exact words>" --default "<what you do without an answer>"
+   --deadline-minutes <n> [--worktree "<wt>"]` and end the message with the
+   `ifNoAnswer` line it returns (at most 30 minutes); past it, go ahead on
+   the default and say so. A question never holds a pull request: ship what
+   is done, arm auto-merge and put the answer-dependent part in a follow-up.
+   For a product question,
    also pass `--product --code-evidence "<file:line>"`; the command refuses it
    without the required code/data-model check. It also refuses a request for
    permission to do in-scope work (a test repair, a main merge, a push, a fix):
@@ -890,9 +899,10 @@ that waited, and one deploy after the last of them carries them all. A
    script leaves out the session's `localFixes` and files that never belong
    in a commit, and the repository's commit hook runs. `committed: false`
    means nothing changed; continue. A commit reporting `pushDue: true`
-   (`scripts/push-cadence.mjs`) has work that waited 90 minutes unpushed:
+   (`scripts/push-cadence.mjs`) has work that waited 45 minutes unpushed:
    publish this tested checkpoint now, send later review findings as
-   follow-up commits, and add no new scope to an unpushed checkpoint. `"ok":false` means the hook refused:
+   follow-up commits, add no new scope to an unpushed checkpoint, and never
+   hold a push for optional evidence (screenshots, extra e2e, full lanes). `"ok":false` means the hook refused:
    resume the SAME persistent writer in fix mode with the error, then commit
    again. An existing test or fixture the change broke is repaired there
    (`references/guardrails.md`, "Repair, don't author"). When the writer

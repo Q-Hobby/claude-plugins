@@ -39,8 +39,11 @@ Codex and Claude Code, and this section is its one canonical statement:
 
 These rules bind every worker in both harnesses.
 
-- Stop only a pid or process group this session recorded and still owns.
-  Never `pkill`, `killall` or `kill` by name or pattern; report what you did not start.
+- Stop only a pid this session recorded and still owns: record each process
+  you start with `node <plugin root>/hooks/kill-guard.mjs own <pid>`.
+  Never `pkill`, `killall` or `kill` by name or pattern; in Claude Code that
+  hook refuses them and a `kill` of a pid of 1 or lower or an unrecorded pid.
+  Report what you did not start.
 - Records, writer state, briefs, monitor config and reports a later step
   reads live in the session's Git metadata, `.claude/worktrees/` or
   `~/.codex/vibe/`, never `/tmp` or the system temp folder.
@@ -111,9 +114,12 @@ Backend, built by that same writer using canonical backend guidance, each under 
   canonical place for them.
 - `packages/database/**`: Prisma schema changes with a generated migration
   (`packages/database/AGENTS.md`); never edit a migration that has landed on
-  main; never apply a migration to a shared database from this Mac (the API's
-  Vercel build applies it to the session's own data on redeploy); every new
-  model gets a seed coverage file and seed data in the vibe seed.
+  main; never apply a migration to a shared database from this Mac; every new
+  model gets a seed coverage file and seed data in the vibe seed. Pushing a
+  migration publishes it to shared preview schemas, so record the test that
+  runs it as `Migration test:` (an existing one that applies every migration
+  counts; for per-row work a measured `Scale test:` too) first;
+  `scripts/migration-publish.mjs` refuses the push without them.
 - `apps/desktop/src/main/**` and `apps/desktop/prisma/**`, when the change is a
   Desktop feature (`apps/desktop/AGENTS.md`; gateway operations stay in
   `apps/desktop/src/server/operations/`).

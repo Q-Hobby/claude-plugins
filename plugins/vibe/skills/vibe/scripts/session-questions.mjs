@@ -7,7 +7,8 @@
 //
 // Usage:
 //   session-questions.mjs reset                                   (start of a new session)
-//   session-questions.mjs ask    --key <key> --question <text> [--product --code-evidence <file:line>] [--worktree <path>]
+//   session-questions.mjs ask    --key <key> --question <text> --default <what you do without an answer> --deadline-minutes <n>
+//                                [--product --code-evidence <file:line>] [--worktree <path>]
 //   session-questions.mjs answer --key <key> --answer <text>   [--worktree <path>]
 //   session-questions.mjs list   [--worktree <path>]
 //
@@ -24,6 +25,16 @@
 // writer once sat idle for an hour "pending authorization" to repair tests.
 // Only a flag key, a product question, dropping or narrowing scope, a
 // destructive action or a credential waits for the person.
+// Every other question carries `--default` and `--deadline-minutes`, and `ask`
+// returns `ifNoAnswer`, the line `If no answer by <ISO time>: <default>` that
+// ends the message asking it; with no answer by then the writer proceeds on
+// the default and says so, and codex-fleet-monitor's recovery pass resumes an
+// idle Codex writer with it. Writers' questions once sat unanswered for seven
+// hours overnight while their writers waited on stated defaults. The deadline
+// is at most 30 minutes, and a question never holds a pull request: the
+// writer ships what is done, arms auto-merge and puts the answer-dependent
+// part in a follow-up (operator ruling, 2026-10-22), so `ask` refuses one
+// that says it holds a merge, a push or the PR.
 // Every command prints one JSON object; errors print {"ok":false,"error":...}.
 
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -37,11 +48,24 @@ const KEY_PATTERN = /^[a-z0-9]+(?:[-:][a-z0-9]+)*$/;
 const MAX_TEXT = 4000;
 const ASKS_LEAVE = /\b(?:may|can|shall|should) i\b|\b(?:ok|okay|fine) (?:for me )?to\b|\bpermission\b|\bauthori[sz](?:e|ation)\b|\bapprov(?:e|al)\b|\bgo-?ahead\b/i;
 const IN_SCOPE_WORK = /\b(?:tests?|fixtures?|specs?|snapshots?|merge (?:main|the base)|main merge|rebase|push|commit|rerun|re-run|lint|typecheck|fix(?:es)?|repair)\b/i;
-const HUMAN_ONLY = /\b(?:flags?|feature flag|credentials?|password|token|sign(?:ed)?[ -]?in|log ?in|delete|discard|destroy|drop|force|wording|copy|product|skip|narrow|defer|exclude|descope|obsolete|out of scope)\b/i;
+const HUMAN_ONLY = /\b(?:flags?|feature flag|switch(?:es)?|toggles?|credentials?|password|token|sign(?:ed)?[ -]?in|log ?in|delete|discard|destroy|drop|force|wording|copy|say|says|label|product|skip|narrow|defer|exclude|descope|obsolete|out of scope)\b/i;
+const WAITS_FOR_PERSON = /\b(?:flags?|feature flag|switch(?:es)?|toggles?|credentials?|password|token|sign(?:ed)?[ -]?in|log ?in|delete|discard|destroy|drop|force|wording|copy|say|says|label|skip|narrow|defer|exclude|descope|obsolete|out of scope)\b/i;
+const MAX_DEADLINE_MINUTES = 30;
+const HOLDS_PR = /\b(?:hold(?:s|ing)?|block(?:s|ing)?|paus(?:e|es|ing)|park(?:ed|ing)?)\b[^.?!\n]{0,40}\b(?:auto-?merge|merge|pr|pull request|push)\b|\b(?:auto-?merge|merge|pr|pull request|push)\b[^.?!\n]{0,20}\b(?:on hold|held|until you answer|pending your answer)\b/i;
 
 /** In-scope engineering work asked as permission; it never waits for the person. */
 export function asksLeaveForInScopeWork(question) {
   return ASKS_LEAVE.test(question) && IN_SCOPE_WORK.test(question) && !HUMAN_ONLY.test(question);
+}
+
+/** A flag, copy, destructive, credential or scope-narrowing question: no default is ever applied without the person. */
+export function waitsForPerson(question) {
+  return WAITS_FOR_PERSON.test(question);
+}
+
+/** The line that ends a question message: what happens, and when, if nobody answers. */
+export function ifNoAnswerLine(deadlineAt, fallback) {
+  return `If no answer by ${deadlineAt}: ${fallback}`;
 }
 
 /** Where questions asked before the session exists are kept. */
@@ -50,11 +74,14 @@ export function startupFile(home = os.homedir()) {
 }
 
 /** Records a question once; a repeated key returns the existing entry instead. */
-export function askQuestion(questions, { key, question, product = false, codeEvidence, now = new Date().toISOString() }) {
+export function askQuestion(questions, { key, question, product = false, codeEvidence, fallback, deadlineMinutes, now = new Date().toISOString() }) {
   requireKey(key);
   requireText("--question", question);
   if (asksLeaveForInScopeWork(question)) {
     throw new Error("in-scope work never waits for authorization: repairing tests the change broke, a main merge, a push, a rerun or an in-scope fix goes ahead now and is reported afterwards; only a flag key, a product question, dropping or narrowing scope, a destructive action or a credential waits");
+  }
+  if (HOLDS_PR.test(question)) {
+    throw new Error("a question never holds a pull request: ship what is done, arm auto-merge, put the part that depends on the answer in a follow-up, and ask without holding anything");
   }
   if (product && !/^\S.*:\d+(?:-\d+)?$/.test(codeEvidence ?? "")) {
     throw new Error("a product question needs --code-evidence <file:line> proving the code and data model were checked first");
@@ -63,7 +90,17 @@ export function askQuestion(questions, { key, question, product = false, codeEvi
   if (existing) {
     return { questions, result: { ask: false, ...existing } };
   }
-  const entry = { key, question, ...(product ? { product: true, codeEvidence } : {}), askedAt: now, answer: null, answeredAt: null };
+  const waits = waitsForPerson(question);
+  const minutes = Number(deadlineMinutes);
+  if (!waits && (!fallback?.trim() || !Number.isInteger(minutes) || minutes < 1 || minutes > MAX_DEADLINE_MINUTES)) {
+    throw new Error(`a question carries --default <what you do without an answer> and --deadline-minutes <1 to ${MAX_DEADLINE_MINUTES}>; only a flag, copy, destructive, credential or scope-narrowing question waits for the person with no deadline`);
+  }
+  const deadlineAt = waits ? null : new Date(Date.parse(now) + minutes * 60_000).toISOString();
+  const entry = {
+    key, question, ...(product ? { product: true, codeEvidence } : {}),
+    ...(waits ? { waitsForPerson: true } : { default: fallback.trim(), deadlineAt, ifNoAnswer: ifNoAnswerLine(deadlineAt, fallback.trim()) }),
+    askedAt: now, answer: null, answeredAt: null,
+  };
   return { questions: [...questions, entry], result: { ask: true, ...entry } };
 }
 
@@ -157,6 +194,8 @@ function run(argv, home = os.homedir()) {
       answer: { type: "string" },
       product: { type: "boolean" },
       "code-evidence": { type: "string" },
+      default: { type: "string" },
+      "deadline-minutes": { type: "string" },
     },
   });
   const worktree = values.worktree;
@@ -170,6 +209,7 @@ function run(argv, home = os.homedir()) {
     case "ask": {
       const { questions, result } = askQuestion(load(worktree, home), {
         key: values.key, question: values.question, product: values.product, codeEvidence: values["code-evidence"],
+        fallback: values.default, deadlineMinutes: values["deadline-minutes"],
       });
       if (result.ask) {
         store(worktree, home, questions);

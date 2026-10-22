@@ -4,10 +4,12 @@
 // a QA guide never heard that its checkpoint was ready, and a UX ruling
 // reached one writer as text while another PR rendered the same behavior.
 //
-// Usage: board.mjs <orchDir> writer <name> [--pr <n>] [--repo <owner/repo>] [--head <sha>] [--status <text>] [--deps <a,b>] [--runtime codex|claude]
+// Usage: board.mjs <orchDir> writer <name> [--pr <n>] [--repo <owner/repo>] [--head <sha>] [--ready <sha>] [--status <text>] [--deps <a,b>] [--runtime codex|claude]
+//        board.mjs <orchDir> push-check <writer> --head <sha>
 //        board.mjs <orchDir> deliver <item> --to <a,b> [--kind ruling|checkpoint|note] [--reference <file>] [--head <sha>]
 //        board.mjs <orchDir> told <item> <recipient>
 //        board.mjs <orchDir> duty <duty> --owner <writer or helper>
+//        board.mjs <orchDir> question <writer> --text <the question and its default> | answered <writer>
 //        board.mjs <orchDir> status [--pushed <name>=<sha>]... [--threads <name>=<n>]...
 //
 // `writer` adds or updates a writer's row (owner, PR, head, status,
@@ -27,17 +29,34 @@
 // owner was stopped with no replacement. `status` prints `UNOWNED-DUTY <duty>
 // owner <who> <why>` when the owner is neither a board writer nor a running
 // helper in helpers.json, and helpers.mjs refuses to stop an owner.
+// Each duty in `REQUIRED_DUTIES` (config.env, space-separated; default
+// `green-watch` and `status-sweep` once the work dir watches PRs in prs.txt)
+// must have one:
+// `status` prints `MISSING-DUTY <duty>` until it does. Merged program PRs once
+// broke main's post-merge batch with nobody following it.
 // A Codex writer (`--runtime codex`) whose head has not moved for 30 minutes
 // while its PR has unresolved human review threads (`--threads`, or read with
 // `gh api graphql` for rows with a PR and repo) prints `SLOW <writer> ...`:
 // hand it to a Claude writer. One spent 35 minutes on nine threads without a push.
-// Both count toward the exit status.
+// A writer declares the head it calls push-ready (`writer <name> --ready
+// <sha>`); `push-check` exits 1 unless the head you are about to push for it
+// is that one. The orchestrator once pushed a writer's committed head while the
+// writer was still fixing two regressions in it, and auto-merge took it.
+// A writer records each question it sends you (`question`); `status` prints
+// `QUESTION-UNANSWERED <writer> <m>m: <text>` once one waited 15 minutes, until
+// `answered`. A writer once held its PR six hours on an unanswered question.
+// All of these count toward the exit status, as does `WATCHER-MISSING(<why>)` when the
+// work dir watches sessions or PRs (sessions.txt or prs.txt) and its watcher is
+// not running: a watcher left unarmed overnight let writers' questions sit
+// unanswered for 7 hours.
 
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
+import { watcherState } from "../../codex-fleet-monitor/scripts/watcher.mjs";
+import { readThreads } from "../../vibe/scripts/pr-threads.mjs";
 
 const STATE = "board.json";
 const PAGE = "board.md";
@@ -45,6 +64,7 @@ const KINDS = new Set(["ruling", "checkpoint", "note"]);
 const LOG_LINES = 50;
 const RUNTIMES = new Set(["codex", "claude"]);
 const SLOW_MINUTES = 30;
+const QUESTION_MINUTES = 15;
 const BOTS = new RegExp(process.env.BOT_LOGIN_REGEX || "vercel|codex|github-actions|copilot|bot", "i");
 
 /** Rows whose recorded head differs from the pushed head; a row with no known pushed head is not judged. */
@@ -71,6 +91,25 @@ export function unownedDuties(board, helpers) {
   });
 }
 
+/** Writers whose recorded question has waited QUESTION_MINUTES or more. */
+export function unansweredQuestions(board, now) {
+  return Object.entries(board.questions)
+    .map(([writer, { text, at }]) => ({ writer, text, minutes: Math.floor((now - Date.parse(at)) / 60_000) }))
+    .filter((entry) => entry.minutes >= QUESTION_MINUTES);
+}
+
+/** Required duties with no owner recorded. */
+export function missingDuties(board, required) {
+  return required.filter((duty) => !board.duties[duty]);
+}
+
+function requiredDuties(orchDir) {
+  const file = path.join(orchDir, "config.env");
+  const configured = existsSync(file) ? /^REQUIRED_DUTIES=["']?([^"'\n]*)["']?\s*$/m.exec(readFileSync(file, "utf8"))?.[1] : undefined;
+  if (configured !== undefined) return configured.split(/\s+/).filter(Boolean);
+  return existsSync(path.join(orchDir, "prs.txt")) ? ["green-watch", "status-sweep"] : [];
+}
+
 /** Every recipient of every delivery not yet told. */
 export function untold(board) {
   return Object.entries(board.deliveries).flatMap(([item, delivery]) =>
@@ -80,15 +119,15 @@ export function untold(board) {
 /** The page writers read. */
 export function render(board) {
   const rows = Object.entries(board.writers).map(([name, row]) =>
-    `| ${name} | ${row.pr ? `${row.repo ?? ""}#${row.pr}` : ""} | ${row.head ?? ""} | ${row.status ?? ""} | ${(row.deps ?? []).join(", ")} | ${row.updatedAt} |`);
+    `| ${name} | ${row.pr ? `${row.repo ?? ""}#${row.pr}` : ""} | ${row.head ?? ""} | ${row.ready ?? ""} | ${row.status ?? ""} | ${(row.deps ?? []).join(", ")} | ${row.updatedAt} |`);
   const open = untold(board).map(({ item, recipient, delivery }) =>
     `- ${item} (${delivery.kind}) for ${recipient}${delivery.reference ? `: ${delivery.reference}` : ""}${delivery.head ? ` at ${delivery.head}` : ""}`);
   const duties = Object.entries(board.duties).map(([duty, { owner, at }]) => `- ${duty}: ${owner} (since ${at})`);
   return [
     "# Fleet board",
     "",
-    "| Writer | PR | Head | Status | Depends on | Updated |",
-    "|---|---|---|---|---|---|",
+    "| Writer | PR | Head | Ready | Status | Depends on | Updated |",
+    "|---|---|---|---|---|---|---|",
     ...rows,
     "",
     "## Standing duties",
@@ -109,7 +148,7 @@ export function render(board) {
 function read(orchDir) {
   const file = path.join(orchDir, STATE);
   const board = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {};
-  return { writers: board.writers ?? {}, deliveries: board.deliveries ?? {}, duties: board.duties ?? {}, log: board.log ?? [] };
+  return { writers: board.writers ?? {}, deliveries: board.deliveries ?? {}, duties: board.duties ?? {}, questions: board.questions ?? {}, log: board.log ?? [] };
 }
 
 function write(orchDir, board, line, at) {
@@ -135,19 +174,10 @@ function ghHead(row) {
   }
 }
 
-const THREADS_QUERY = "query($o:String!,$n:String!,$p:Int!){repository(owner:$o,name:$n){pullRequest(number:$p){reviewThreads(first:100){nodes{isResolved comments(first:1){nodes{author{login}}}}}}}}";
-
 /** Unresolved review threads a human opened, or null when gh cannot answer. */
 function ghThreads(row) {
-  const [owner, name] = row.repo.split("/");
-  try {
-    const out = execFileSync(process.env.BOARD_GH || "gh", ["api", "graphql", "-f", `query=${THREADS_QUERY}`, "-F", `o=${owner}`, "-F", `n=${name}`, "-F", `p=${row.pr}`],
-      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 30_000 });
-    const nodes = JSON.parse(out)?.data?.repository?.pullRequest?.reviewThreads?.nodes ?? [];
-    return nodes.filter((node) => !node.isResolved && !BOTS.test(node.comments?.nodes?.[0]?.author?.login ?? "bot")).length;
-  } catch {
-    return null;
-  }
+  const threads = readThreads(row.repo, row.pr, process.env.BOARD_GH || "gh");
+  return threads === null ? null : threads.filter((thread) => !thread.resolved && !BOTS.test(thread.opener ?? "bot")).length;
 }
 
 function pairs(texts, flag) {
@@ -196,11 +226,11 @@ function main(argv) {
       pr: { type: "string" }, repo: { type: "string" }, head: { type: "string" }, status: { type: "string" }, deps: { type: "string" },
       to: { type: "string" }, kind: { type: "string" }, reference: { type: "string" },
       pushed: { type: "string", multiple: true }, threads: { type: "string", multiple: true }, now: { type: "string" },
-      runtime: { type: "string" }, owner: { type: "string" },
+      runtime: { type: "string" }, owner: { type: "string" }, text: { type: "string" }, ready: { type: "string" },
     },
   });
-  if (!orchDir || !["writer", "deliver", "told", "duty", "status"].includes(action)) {
-    throw new Error("Usage: board.mjs <orchDir> writer|deliver|told|duty|status ...");
+  if (!orchDir || !["writer", "deliver", "told", "duty", "question", "answered", "push-check", "status"].includes(action)) {
+    throw new Error("Usage: board.mjs <orchDir> writer|deliver|told|duty|question|answered|push-check|status ...");
   }
   const board = read(orchDir);
   const now = values.now ? Date.parse(values.now) : Date.now();
@@ -216,12 +246,44 @@ function main(argv) {
     }
     const duties = unownedDuties(board, readHelpers(orchDir));
     for (const entry of duties) process.stdout.write(`UNOWNED-DUTY ${entry.duty} owner ${entry.owner} ${entry.why}\n`);
-    process.stdout.write(`board: ${Object.keys(board.writers).length} writers, ${stale.length} stale, ${open.length} untold, ${slow.length} slow, ${duties.length} unowned duties\n`);
-    return stale.length + open.length + slow.length + duties.length === 0 ? 0 : 1;
+    const missing = missingDuties(board, requiredDuties(orchDir));
+    for (const duty of missing) process.stdout.write(`MISSING-DUTY ${duty}: give it an owner with board.mjs <orchDir> duty ${duty} --owner <writer or helper>\n`);
+    const asked = unansweredQuestions(board, now);
+    for (const entry of asked) process.stdout.write(`QUESTION-UNANSWERED ${entry.writer} ${entry.minutes}m: ${entry.text.slice(0, 160)}\n`);
+    const watched = ["sessions.txt", "prs.txt"].some((file) => existsSync(path.join(orchDir, file)));
+    const watcher = watched ? watcherState(orchDir, now) : { ok: true };
+    if (!watcher.ok) process.stdout.write(`WATCHER-MISSING ${watcher.line.replace("watcher MISSING", "")}: re-arm watch.sh now (run_in_background)\n`);
+    process.stdout.write(`board: ${Object.keys(board.writers).length} writers, ${stale.length} stale, ${open.length} untold, ${slow.length} slow, ${duties.length + missing.length} unowned duties, ${asked.length} unanswered${watcher.ok ? "" : ", watcher missing"}\n`);
+    return stale.length + open.length + slow.length + duties.length + missing.length + asked.length + (watcher.ok ? 0 : 1) === 0 ? 0 : 1;
   }
   const [name, recipient] = positionals;
   if (!name) {
     throw new Error(`${action} needs a name.`);
+  }
+  if (action === "push-check") {
+    const ready = board.writers[name]?.ready;
+    if (!values.head) {
+      throw new Error("push-check needs --head <the sha you would push>.");
+    }
+    if (!ready || !(ready.startsWith(values.head) || values.head.startsWith(ready)) || Math.min(ready.length, values.head.length) < 7) {
+      process.stdout.write(`NOT-READY ${name} head ${values.head}, declared ready ${ready ?? "none"}: ask the writer for its push-ready head and wait for it; never push a head it has not called ready\n`);
+      return 1;
+    }
+    process.stdout.write(`READY ${name} ${values.head}\n`);
+    return 0;
+  }
+  if (action === "question") {
+    if (!values.text?.trim()) {
+      throw new Error("question needs --text <the question and the default you proceed on>.");
+    }
+    board.questions[name] = { text: values.text.trim(), at };
+    write(orchDir, board, `${name} asked: ${values.text.trim().slice(0, 80)}`, at);
+    return 0;
+  }
+  if (action === "answered") {
+    delete board.questions[name];
+    write(orchDir, board, `${name} answered`, at);
+    return 0;
   }
   if (action === "duty") {
     if (!values.owner) {
@@ -236,7 +298,7 @@ function main(argv) {
       throw new Error("--runtime must be codex or claude.");
     }
     const row = board.writers[name] ?? {};
-    const update = Object.fromEntries(Object.entries({ pr: values.pr, repo: values.repo, head: values.head, status: values.status, runtime: values.runtime })
+    const update = Object.fromEntries(Object.entries({ pr: values.pr, repo: values.repo, head: values.head, ready: values.ready, status: values.status, runtime: values.runtime })
       .filter(([, value]) => value !== undefined));
     const moved = values.head !== undefined && values.head !== row.head;
     board.writers[name] = { ...row, ...update, ...(values.deps === undefined ? {} : { deps: list(values.deps) }), ...(moved ? { headAt: at } : {}), updatedAt: at };

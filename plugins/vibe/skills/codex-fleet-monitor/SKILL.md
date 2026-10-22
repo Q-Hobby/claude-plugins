@@ -32,6 +32,10 @@ REMOTE_HOST=user@host            # omit when there are no remote sessions
 REMOTE_STATE_DIR=/path/on/remote # remote scratch dir; also holds state files for two-column sessions
 REMOTE_SHELL="zsh -lic"          # login shell so node/codex are on PATH (default)
 STALL_SECONDS=720                # no new thread items for this long means STALLED (default 12m)
+# CLAUDE_USAGE=0                 # turn off the claude-usage line; CLAUDE_USAGE_SECONDS=600 sets how often it is read
+# QUESTION_SECONDS=900          # an idle writer's question unanswered this long is QUESTION-UNANSWERED (default 15m)
+# STALE_PR_SECONDS=2700         # a PR needing its writer with no push this long is STALE-PR (default 45m)
+# HEARTBEAT_SECONDS=1800         # with no change, watch.sh exits with HEARTBEAT after this long (default 30m)
 WATCH_NEW_PR_REPOS="owner/repo"  # optional: list open PRs here to spot new ones
 PR_SEARCH="head:feature/"        # optional: search filter for that list
 BOT_LOGIN_REGEX="vercel|codex|github-actions|copilot|bot"  # authors not counted as human feedback
@@ -71,8 +75,10 @@ Start it with `run_in_background`, never with `&`; a second copy for the same wo
 
 | Line | Meaning | Usual action |
 |---|---|---|
+| `HEARTBEAT ...` | nothing changed for `HEARTBEAT_SECONDS` | read every teammate message and idle writer question, then re-arm |
 | `session <where> <name> RUN` | turn in progress and producing items | none |
 | `session ... IDLE` | turn completed; the session is waiting for you | read its last message, give it the next turn |
+| `session ... IDLE QUESTION-UNANSWERED(15m+) ...` | the writer asked something and has waited `QUESTION_SECONDS` (15 minutes) | answer it now, or tell it to proceed on its default |
 | `session ... MODEL(<model>/<effort>!=<want>)` | the thread runs on another model or effort than `CODEX_MODEL` and `CODEX_EFFORT` | restart it on the configured one; other models were far slower |
 | `session ... STALLED(...)` | turn open but silent | check for a usage limit or a hung command; tell the user if it needs them |
 | `session ... FAILED(LIMIT)` | turn errored on a usage limit | tell the user right away; a reset or second account is theirs to do |
@@ -85,12 +91,14 @@ Start it with `run_in_background`, never with `&`; a second copy for the same wo
 | `supervisor ... RSS-HIGH(>NMB)` | the supervisor's RSS is over `SUPERVISOR_RSS_CAP_MB` | read its hourly summary lines; restart it and report the leak |
 | `session remote <host> UNREACHABLE` | ssh failed | check the host |
 | `codex-usage <local\|remote> under80% ok resets=<n>` / `HIGH(<band>%)` | Codex account usage on that machine: one band below `USAGE_HIGH_PERCENT` (80 here) used, so ordinary use is not an event, then the used percent floored to 10; `resets` is the count of available limit resets | none below it; on `HIGH`, warn the user at once with the band and `resets`, since applying a reset is theirs; if they are away, move the busiest writers to Claude writers |
+| `claude-usage local session=<band> week=<band>` | Claude usage from `claude -p "/usage"` on the same bands (read at most every `CLAUDE_USAGE_SECONDS`, 600) | on `HIGH`, warn the user at once with its `resets=` time; if they are away, move the busiest Claude writers to Codex writers |
 | `codex-usage ... LIMIT` / `LIMIT-STOPPED` | usage limit reached; `LIMIT` means ordinary usage is still allowed, `LIMIT-STOPPED` means sessions cannot run | tell the user right away; a reset or second account is theirs to do |
 | `codex-usage ... LIMIT-SPENDING-CREDITS` | limit reached and turns are now consuming paid credits | tell the user at once and stop sending turns unless they approve paid credits |
 | `codex-usage ... unknown` / `unreadable READFAIL` | the App Server answered without rate limits, or it or the remote host could not be read | check `codex` on that machine |
 | `requests <local\|remote> <count> <newest file>` / `requests ... UNREADABLE` | a session dropped (or you removed) a delegated-work request file | hand the new request to a Claude worker, then steer its result back to the session that asked |
 | `open-prs <repo> <numbers>` | open PR list changed | add the new PR to `prs.txt` and start its review |
 | `pr ... BLOCKED(unresolved threads)` | an open PR has unresolved review threads (`threads=<n>`), which block its merge even when it is approved with auto-merge armed | treat each thread as work: route it to the owning writer now, and never read the block as a missing approval |
+| `pr ... STALE-PR(...)` | an open PR with unresolved threads, a conflict, a draft flag or a failed check has had no push for `STALE_PR_SECONDS` (45 minutes) | ask its writer for an ETA, unblock it, or reassign it, however busy the writer looks |
 | `pr ... <state> <head> <reviewDecision> <mergeable> comments= reviews= inline= threads= checks=` | any field changed | new head: re-review; count up: read the feedback; `CONFLICTING`: tell the owning session to merge the base branch; checks: act on failures. Check counts change only once settled; while any check is pending the last settled counts show with ` (running)` |
 
 Surface everything that needs a human to the user immediately: limits, paid-credit spending, stalls, failures, and new human review comments.
@@ -102,12 +110,14 @@ Each watcher tick runs `scripts/recover.mjs` on every machine that has sessions 
 1. It waits the next `RECOVERY_BACKOFF_SECONDS` value, then reloads the thread (`thread/resume`) and starts a turn with the continue prompt. The built-in prompt tells the session to check its real state (git status and HEAD, a merge or rebase in progress, its background jobs and slot or lock entries, its last push) and not to redo finished steps. Retries count across consecutive transient failures and reset once a turn completes.
 2. If the thread is still in `systemError` after the last retry, the App Server daemon must restart. With `AUTO_RESTART_DAEMON=1` it prints a loud `!!! RESTARTING` line, runs `codex app-server daemon restart`, then resumes with the continue prompt each watched session on that machine whose turn was active (the restart interrupts it) or failed. An idle session stays idle, since a prompt would start work nobody asked for. Each session's state just before the restart is a `before-restart` event. It restarts at most once per `RESTART_COOLDOWN_SECONDS`. With the switch off it prints one `ALERT ... daemon-restart-needed` line and restarts nothing.
 3. Retries used up outside `systemError` print one `gave-up` line. A usage limit or any other error is never resumed; those stay yours.
+4. An idle session whose question ends `If no answer by <ISO time>: <default>` (vibe's `session-questions.mjs`) is told to go ahead on the default once that time passes (`proceeded-on-default`).
 
 Every action is an `EVENT recovery ...` line in the events log, which the `recovery` snapshot line reports, so you see what happened when you wake.
 
 | Event | Usual action |
 |---|---|
 | `<label> transient-failure ...` / `resumed ...` / `recovered ...` | none; read the session's last message when convenient |
+| `<label> proceeded-on-default ...` | nobody answered by the deadline; answer now if the default is wrong |
 | `<label> resume-failed ...` | none while retries remain |
 | `pass-timeout after <N>s ...` | a pass outlasted `PASS_TIMEOUT_SECONDS`, usually a daemon that stopped answering; its connections were closed and the next pass runs on schedule | if it repeats, check `codex app-server daemon` on that host |
 | `pass-failed: ...` (supervisor log) | a pass could not connect or read | if it repeats, check `codex` on that host |
