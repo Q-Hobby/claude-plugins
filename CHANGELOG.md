@@ -4,6 +4,11 @@ All notable changes to the claude-plugins project will be documented in this fil
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Entries are listed newest-first; each plugin section is treated as released when merged to `main`.
 
+### closedloop-core v1.5.3
+
+#### Fixed
+- `prd-dependency-graph` draws every BLOCKS link between two tickets the graph shows, not only links that touch an in-scope ticket or lead into an outside blocker. A ticket the scope blocks that also blocks another such ticket now gets that arrow, so hovering or pinning a ticket shows all of its drawn blockers. With one layer of outside blockers, links between those blockers and from them to downstream tickets are drawn too. New pages, `--once`, the refresh button and the outside-blockers option all build links the same way. The links of each drawn ticket not already read during the walk are read once, and no ticket is added to the graph.
+
 ### vibe v1.0.85
 
 #### Added
