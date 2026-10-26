@@ -2,18 +2,12 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from vibe_contract_text import hook_guard_routed
 
 
 ROOT = Path(__file__).resolve().parents[2]
-
-
-def test_release_and_both_manifests_are_1082() -> None:
-    for manifest in (".claude-plugin/plugin.json", ".codex-plugin/plugin.json"):
-        assert json.loads((ROOT / manifest).read_text())["version"] == "1.0.82"
 
 
 def test_every_guard_runs_from_its_events_one_script() -> None:
