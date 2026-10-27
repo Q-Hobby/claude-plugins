@@ -11,7 +11,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from vibe_contract_text import flat, section
@@ -23,11 +22,6 @@ FLEET_SKILL = FLEET / "SKILL.md"
 TEMPLATES = FLEET / "references" / "templates.md"
 STATE = FLEET / "references" / "state.md"
 SINGLE_USE = "## Programs with one writer or none"
-
-
-def test_release_and_both_manifests_are_110() -> None:
-    for manifest in (".claude-plugin/plugin.json", ".codex-plugin/plugin.json"):
-        assert json.loads((ROOT / manifest).read_text())["version"] == "1.1.0"
 
 
 def test_the_fleet_skill_is_the_entry_point_for_one_writer_and_for_none() -> None:

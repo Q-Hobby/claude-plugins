@@ -4,6 +4,16 @@ All notable changes to the claude-plugins project will be documented in this fil
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Entries are listed newest-first; each plugin section is treated as released when merged to `main`.
 
+### vibe v1.1.1
+
+Two Storybook mistakes the first Storybook handoff review found (ISS-13167) are now raised at placement, before the writer builds the stories, instead of only at handoff (ISS-13182).
+
+#### Added
+- `vibe-storybook-decomposer` placement reports the setup the new stories need that an existing story file for the same component, page or folder already declares (route fixtures, stored-view clearing, query-cache seeding, fixture components and data), in a new `Fixtures` line naming the non-story fixture module to import it from, or the move into one the writer makes first. A new story file never re-types it.
+- A new `Names` line lists, for each planned story name, the play assertion (or the args, for a story with no play) behind every claim in the name: each kind, level or state it lists, a word such as every or all, a painted label or status. A claim with nothing behind it is narrowed or its play completed before the story is written.
+- The writer's design-pass prep records both lines, and the handoff `Names` and `Fixtures` checks compare the result against them.
+- Placement decides a new entry's lifecycle tag from its flags (operator ruling, 2026-10-27): each flag that gates the surface or that the planned stories turn on is read in the session's production flag snapshot, and a surface reachable only behind a flag that is off or missing there is tagged `preview` wherever it sits in the tree, never `stable`, and its story file names the flag (`// Preview: <flag key> is off in production`, which symphony-alpha's `check:story-rules` requires outside Labs). With no snapshot the tag is a Conflict for engineering. The Stories line carries each flag and its snapshot value, and the handoff lifecycle check uses the same rule.
+- Coverage: a contract test file (`test_vibe_storybook_fixtures_names_contract.py`, 5 of its 8 cases fail on 1.1.0's decomposer) and a `claude plugin eval` case (`pm-storybook-names-claim-what-plays-assert`) rehearsing the ISS-13167 names at placement. The eval passes 3 of 3 here and also 3 of 3 on 1.0.85 (the decomposer text 1.1.0 ships unchanged), whose decomposer already gives the naming advice, so it guards against a regression; the contract test is the evidence for this change. A second eval, `pm-storybook-flag-off-is-preview`, tags a Composite behind an off flag `preview`: 3 of 3 here, 1 of 3 on 1.0.85 (same decomposer text as 1.1.0).
 ### vibe v1.1.0
 
 fleet-orchestrator now runs a program with one writer or with none, every vibe and fleet-orchestrator start checks every installed ClosedLoop plugin in Claude Code and Codex against `main`, and eight bugs from two audited fleet sessions (vibe 1.0.72 and 1.0.85) are fixed (operator rulings, 2026-10-27). Skill instruction text is about 827 words longer than 1.0.85, 367 of them from the audit fixes; the new eval prompts add about 2,850 more, which no session loads.
