@@ -4,6 +4,28 @@ All notable changes to the claude-plugins project will be documented in this fil
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Entries are listed newest-first; each plugin section is treated as released when merged to `main`.
 
+### vibe v1.1.12
+
+Sessions the vibe and fleet scripts start no longer fill a desktop app's chat list with "Imported session" and raw JSON titles (ISS-13279).
+
+#### Added
+- `codex-fleet-monitor/scripts/thread-sidebar.mjs`: names a just-started Codex thread, moves it into one "Fleet workers" sidebar section (creating it when missing, the oldest when several share the name), and archives a worker only after its end is recorded. A step an older App Server lacks is a warning, not a failed start.
+- `codex-session.mjs end <stateDir> <name> --reason stopped|merged` (also `fleet.sh ... session end`): refuses a thread with a running turn, records the end in the session's state file, then archives the thread. A later `turn` unarchives it first, `steer` refuses an ended session, and the recovery supervisor (`recover.mjs`) skips ended sessions.
+- cl-sweep: `native-app-server-orchestrator.mjs init --thread-name` and an `end --reason stopped|merged` command on both `native-app-server-orchestrator.mjs` and `app-server-worker-session.mjs`, with the same order (refuse a live turn, record, archive) and an unarchive before a later resume.
+- Every worker thread `codex-session.mjs` and cl-sweep start sends `threadSource: "chatgpt_hidden"` on `thread/start` (never on resume or turns, never for the orchestrator's own thread). The Codex app keeps such threads out of its sidebar, but `thread/list` (0.163 to 0.165) does not return the field, so today the marker does not keep workers out of the app (after an app restart a marked worker is listed); workers drop out once a server returns it. The Codex CLI picker, `codex exec resume <id>` and `thread/list` still list and resume marked workers. An older App Server ignores the field.
+- A guard test (`thread-sidebar.test.mjs`) fails when any plugin or `tools/*/src` script calls `thread/start` without `labelWorkerThread` or without `threadSource: WORKER_THREAD_SOURCE`, or runs headless `claude -p`/`--print` without `--name` or `--no-session-persistence`.
+
+#### Changed
+- `codex-session.mjs turn` takes an optional `--ticket <slug>` for a new session; its thread is named `<name> · <ticket>`, or `<name>` without one, and moved into "Fleet workers" right after `thread/start`. A resumed session is never renamed or moved.
+- cl-sweep ticket worker threads are named `cl-sweep · <ticket>` and moved into "Fleet workers" right after `thread/start`.
+- `claude-worker.mjs` passes `--name "vibe <role> · <session slug> · <request id>"` to every Claude worker run; sessions are still saved.
+- `claude-usage.mjs` runs `claude -p --no-session-persistence /usage`, and `precedent-check.mjs` adds `--no-session-persistence` to its headless `claude -p --chrome` look.
+- fleet-orchestrator's QA-guide launch adds `--name "QA guide · PR <n>"`.
+- vibe `INSTALL.md` and fleet-orchestrator `references/setup.md` explain that the Codex app's Import from Claude and Keep imports in sync turn saved Claude sessions into sidebar chats, and how to keep them out; cl-sweep `execution-surfaces.md` says when to run `end`.
+- The README's runtime line says 1.1.12, and its `fleet-orchestrator` section says `fleet.sh` also ends threads and names and groups new ones.
+- `fleet.sh` ships `thread-sidebar.mjs` for remote sessions, and a test walks `codex-session.mjs`'s imports so an unshipped module fails.
+- The 1.1.6 release pin in `test_vibe_connection_restore_contract.py` is retired (the manifests now say 1.1.7; the Plugin Manifest Versions job keeps the two equal).
+
 ### vibe v1.1.11
 
 A product manager could not get a pull request out of vibe (ISS-13291). After the plugin update, the session's saved writer could neither resume (its release was removed) nor migrate (its last turn had ended `BLOCKED`), main sync refused the person's own ignored agent config, the handoff frozen-render gate had no shipped way to pass, and local web e2e stopped on the staging sign-in a PM's machine does not have. Operator rulings (2026-10-28): fix all five bugs in one change, deadlock first; on a machine without the staging e2e identities, skip local web e2e and rely on the containerized or CI run.
@@ -57,7 +79,6 @@ A vibe user on Codex could not follow the setup step "connect the ClosedLoop con
 - The vibe orchestrator dispatches the setup worker when either connection does not answer, instead of telling the person to open Settings. The setup worker no longer asks the person to quit and reopen the ChatGPT app for closedloop-graph.
 - The folder access step names the macOS labels: System Settings, Privacy & Security, Files & Folders, under ChatGPT. `INSTALL.md` says to click Plugins and New chat in the sidebar, and says what `codex mcp list` must show for closedloop-graph.
 - Coverage: `test_vibe_connection_restore_contract.py` (13 cases, 10 fail on 1.1.4) pins the procedures, refuses any vibe or fleet-orchestrator instruction naming the app's Settings or "click Connect", and refuses a person line that sends the person to the Terminal app for anything but the Claude sign-in. Two new `plugin-version.test.mjs` cases cover the setup check block. New evals `exec-closedloop-sign-in-ran-out-mid-chat-new-chat`, `exec-closedloop-signed-in-again-keeps-chat`, `exec-sandbox-blocked-sign-in-asks-allow-once`, `exec-github-sign-in-run-for-the-person` and `exec-setup-check-block-first-reply` join `exec-closedloop-connection-lost-no-settings`; the Codex runner now has 93 cases.
-
 ### vibe v1.1.4
 
 The plugin README now says what vibe is, who it is for (executives, designers, product managers and engineers) and what a session looks like before the reference material (ISS-13281). No skill or agent behavior changes.
