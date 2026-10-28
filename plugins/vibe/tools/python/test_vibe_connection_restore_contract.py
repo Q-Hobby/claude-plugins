@@ -20,7 +20,6 @@ label, and they could not find it. The fix:
 
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
 
@@ -51,11 +50,6 @@ def instruction_files() -> list[Path]:
 
 def person_lines(text: str) -> list[str]:
     return re.findall(r'(?:with|Send) exactly: "([^"]+)"', flat(text))
-
-
-def test_release_and_both_manifests_are_116() -> None:
-    for manifest in (".claude-plugin/plugin.json", ".codex-plugin/plugin.json"):
-        assert json.loads((PLUGIN_ROOT / manifest).read_text())["version"] == "1.1.6"
 
 
 def test_no_instruction_sends_the_person_into_the_app_settings() -> None:
